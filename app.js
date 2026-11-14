@@ -8,10 +8,6 @@ const signed = (n) => {
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${fmt.format(Math.abs(r))} €`;
 };
 const kilo = (n) => fmt.format(Math.round(n / 1000));
-const signedKilo = (n) => {
-  const r = Math.round(n / 1000);
-  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${fmt.format(Math.abs(r))} t€`;
-};
 const roundTo = (n, step) => Math.round(n / step) * step;
 
 const CURVE_MIN = 20_000;
@@ -70,16 +66,6 @@ function niceTicks(min, max, target) {
 const linear = (d0, d1, r0, r1) => (v) => r0 + ((v - d0) / (d1 - d0 || 1)) * (r1 - r0);
 const path = (points) => points.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
 
-function interpolate(points, x, xKey, yKey) {
-  if (x <= points[0][xKey]) return points[0][yKey];
-  for (let i = 1; i < points.length; i += 1) {
-    const a = points[i - 1];
-    const b = points[i];
-    if (x <= b[xKey]) return a[yKey] + ((x - a[xKey]) / (b[xKey] - a[xKey])) * (b[yKey] - a[yKey]);
-  }
-  return points[points.length - 1][yKey];
-}
-
 /** Kohdistin ja vihje. getInfo(xPx) palauttaa { x, top, bottom, html } tai null. */
 function attachHover(el, getInfo) {
   const cross = el.querySelector(".cross");
@@ -109,9 +95,7 @@ function attachHover(el, getInfo) {
   el.addEventListener("pointercancel", hide);
 }
 
-// ---------- Kaavio 1: oy:n etu tuloksen mukaan ----------
-
-let advView = null;
+// ---------- Raja tuloksen mukaan ----------
 
 function findCrossings(curve) {
   const out = [];
@@ -127,90 +111,7 @@ function findCrossings(curve) {
   return out;
 }
 
-function renderAdvantage(curve, current, crossings) {
-  const el = $("#advChart");
-  const W = Math.max(280, el.clientWidth);
-  const H = W < 520 ? 210 : 300;
-  const m = { l: 44, r: 14, t: 16, b: 34 };
-  const xMin = curve[0].profit;
-  const xMax = curve[curve.length - 1].profit;
-  const values = curve.map((p) => p.advantage).concat(current.advantage, 0);
-  let yMin = Math.min(...values);
-  let yMax = Math.max(...values);
-  const pad = (yMax - yMin || 1000) * 0.1;
-  yMin -= yMin < 0 ? pad : 0;
-  yMax += yMax > 0 ? pad : 0;
-  if (yMax === yMin) yMax = yMin + 1000;
-  const x = linear(xMin, xMax, m.l, W - m.r);
-  const y = linear(yMin, yMax, H - m.b, m.t);
-  const y0 = y(0);
-  const pts = curve.map((p) => [x(p.profit), y(p.advantage)]);
-  const line = path(pts);
-  const area = `${line}L${pts[pts.length - 1][0].toFixed(1)},${y0.toFixed(1)}L${pts[0][0].toFixed(1)},${y0.toFixed(1)}Z`;
-
-  const yTicks = niceTicks(yMin, yMax, 4);
-  const xTicks = niceTicks(xMin, xMax, W < 520 ? 4 : 7).filter((t) => t >= xMin);
-  const lastShort = curve.filter((p) => p.shortfall).map((p) => p.profit).pop();
-
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Oy:n etu toiminimeen verrattuna eri vuosituloksilla">`;
-  svg += `<defs><clipPath id="clipUp"><rect x="0" y="0" width="${W}" height="${y0}"/></clipPath>`;
-  svg += `<clipPath id="clipDown"><rect x="0" y="${y0}" width="${W}" height="${H - y0}"/></clipPath></defs>`;
-  for (const t of yTicks) {
-    svg += `<line class="${t === 0 ? "zero" : "grid"}" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`;
-    svg += `<text x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${t > 0 ? "+" : t < 0 ? "−" : ""}${kilo(Math.abs(t))}</text>`;
-  }
-  for (const t of xTicks) {
-    svg += `<text x="${x(t)}" y="${H - m.b + 15}" text-anchor="middle">${kilo(t)}</text>`;
-  }
-  svg += `<text x="${W - m.r}" y="${H - 3}" text-anchor="end">Tulos vuodessa, t€</text>`;
-  svg += `<text x="${m.l - 6}" y="${H - 3}" text-anchor="end">t€</text>`;
-  if (lastShort) {
-    const w = x(lastShort) - m.l;
-    svg += `<rect class="short" x="${m.l}" y="${m.t}" width="${w}" height="${H - m.b - m.t}"/>`;
-  }
-  svg += `<path class="area oy-fill" d="${area}" clip-path="url(#clipUp)"/>`;
-  svg += `<path class="area tmi-fill" d="${area}" clip-path="url(#clipDown)"/>`;
-  svg += `<path class="series oy-stroke" d="${line}" clip-path="url(#clipUp)"/>`;
-  svg += `<path class="series tmi-stroke" d="${line}" clip-path="url(#clipDown)"/>`;
-  if (yMax > 0 && y0 - m.t > 34) svg += `<text class="region" x="${W - m.r - 4}" y="${m.t + 12}" text-anchor="end">Oy kannattaa ↑</text>`;
-  if (yMin < 0 && H - m.b - y0 > 26) svg += `<text class="region" x="${W - m.r - 4}" y="${H - m.b - 7}" text-anchor="end">Toiminimi kannattaa ↓</text>`;
-
-  for (const c of crossings) {
-    svg += `<circle class="hollow" cx="${x(c.profit)}" cy="${y0}" r="4"/>`;
-  }
-
-  const cx = x(Math.min(xMax, Math.max(xMin, current.profit)));
-  const cy = y(current.advantage);
-  const up = current.advantage >= 0;
-  svg += `<line class="guide" x1="${cx}" x2="${cx}" y1="${m.t}" y2="${H - m.b}"/>`;
-  svg += `<circle class="${up ? "oy-fill" : "tmi-fill"} ring" cx="${cx}" cy="${cy}" r="6"/>`;
-  // Käyrä nousee oikealle, joten luku mahtuu pisteen vasempaan yläkulmaan
-  // tai oikeaan alakulmaan osumatta viivaan.
-  const above = cx > m.l + 70 && cy - 12 > m.t + 4;
-  svg += `<text class="strong" x="${above ? cx - 9 : cx + 9}" y="${above ? cy - 9 : cy + 18}" text-anchor="${above ? "end" : "start"}">${signedKilo(current.advantage)}</text>`;
-  svg += "</svg>";
-  el.querySelector(".plot").innerHTML = svg;
-  $("#advNote").hidden = !lastShort;
-  advView = { curve, x, xMin, xMax, m, W, H };
-}
-
-function advantageInfo(px) {
-  if (!advView) return null;
-  const { curve, x, xMin, xMax, m, W, H } = advView;
-  if (px < m.l - 8 || px > W - m.r + 8) return null;
-  const profit = Math.min(xMax, Math.max(xMin, xMin + ((px - m.l) / (W - m.r - m.l)) * (xMax - xMin)));
-  const snapped = roundTo(profit, 2500);
-  const advantage = interpolate(curve, snapped, "profit", "advantage");
-  const winner = advantage >= 0 ? "Oy" : "Toiminimi";
-  return {
-    x: x(snapped),
-    top: m.t,
-    bottom: H - m.b,
-    html: `Tulos ${money(snapped)}<br><b>${winner} ${signed(Math.abs(advantage))}</b>`,
-  };
-}
-
-// ---------- Kaavio 2: varallisuus vuosittain ----------
+// ---------- Kaavio: varallisuus vuosittain ----------
 
 let yearView = null;
 
@@ -236,7 +137,7 @@ function renderYears(result) {
   const points = yearSeries(result);
   const career = result.input.years;
   const W = Math.max(280, el.clientWidth);
-  const H = W < 520 ? 200 : 270;
+  const H = W < 520 ? 220 : 320;
   const m = { l: 44, r: 62, t: 22, b: 34 };
   const n = points.length;
   const x = n === 1 ? () => (m.l + W - m.r) / 2 : linear(1, n, m.l, W - m.r);
@@ -407,7 +308,6 @@ function drawCurve() {
   if (!latest || !curve) return;
   const crossings = findCrossings(curve);
   renderVerdict(latest, curve, crossings);
-  renderAdvantage(curve, { profit: latest.input.profit, advantage: latest.summary.advantage }, crossings);
 }
 
 function update() {
@@ -461,7 +361,6 @@ for (const form of [$("#controls"), $("#advancedForm")]) {
   form.addEventListener("submit", (event) => event.preventDefault());
 }
 
-attachHover($("#advChart"), advantageInfo);
 attachHover($("#yearChart"), yearInfo);
 
 let resizeTimer = 0;

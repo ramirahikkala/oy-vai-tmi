@@ -9,9 +9,9 @@ Kaksi polkua samasta tuloksesta ja samasta nettotarpeesta:
 
 Työvuodet ja eläkevuodet ovat erillään. Eläkkeellä molemmista nostetaan sama summa verojen jälkeen: oy:stä osinkona, toiminimeltä salkkua myymällä. Viimeisenä eläkevuonna loput myydään ja yhtiö puretaan (luovutusvoittovero).
 
-Sivun pääluku on oy:n etu: käteen yhteensä, oy miinus toiminimi. Pääkuva näyttää saman eron eri vuosituloksilla, ja nollakohta on kannattavuusraja. Näkyvissä on viisi säädintä (tulos, nettotarve, työvuodet, eläkevuodet, tuotto), ja kaikki muu on lisäasetuksissa.
+Sivun pääluku on oy:n etu: käteen yhteensä, oy miinus toiminimi. Kaavio näyttää molempien varallisuuden verojen jälkeen työ- ja eläkevuosina, ja tuomion alla kerrotaan tulos, jolla oy alkaa kannattaa. Näkyvissä on viisi säädintä (tulos, nettotarve, työvuodet, eläkevuodet, tuotto), ja kaikki muu on lisäasetuksissa.
 
-Tiedostot: `calc.js` on laskenta ilman selainriippuvuuksia, `app.js` piirtää sivun ja kaaviot, `test.js` testaa laskennan.
+Tiedostot: `calc.js` on laskenta ilman selainriippuvuuksia, `app.js` piirtää sivun ja kaavion, `test.js` testaa laskennan.
 
 Luvut ovat suuntaa-antavia, eivät veroneuvontaa. Rajaukset ovat sivun alaosassa.
 

@@ -212,7 +212,6 @@ h3 {
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart text { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
 .chart .strong { fill: var(--ink); font-weight: 700; font-size: 12px; }
-.chart .region { fill: var(--ink-2); font-size: 11px; font-weight: 600; }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
 .chart .zero { stroke: var(--line-strong); stroke-width: 1; }
 .chart .guide { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
@@ -223,8 +222,6 @@ h3 {
 .chart .tmi-fill { fill: var(--tmi); }
 .chart .area { opacity: 0.14; }
 .chart .ring { stroke: var(--surface); stroke-width: 2; }
-.chart .short { fill: var(--muted); opacity: 0.12; }
-.chart .hollow { fill: var(--surface); stroke: var(--ink-2); stroke-width: 1.5; }
 
 .cross {
   position: absolute;
@@ -263,17 +260,6 @@ h3 {
   height: 10px;
   border-radius: 50%;
   margin-right: 6px;
-}
-
-.swatch {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 6px;
-  vertical-align: -1px;
-  border-radius: 2px;
-  background: var(--muted);
-  opacity: 0.3;
 }
 
 .dot.oy { background: var(--oy); }
@@ -417,12 +403,10 @@ fieldset .slider { grid-column: 1 / -1; display: grid; }
 @media (min-width: 900px) {
   .layout {
     grid-template-columns: 340px minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto;
     grid-template-areas:
-      "verdict adv"
-      "controls adv"
-      "controls why"
+      "verdict year"
       "controls year"
+      "controls why"
       "advanced advanced"
       "method method";
     align-items: start;
@@ -441,7 +425,6 @@ fieldset .slider { grid-column: 1 / -1; display: grid; }
 
   .verdict-amount { margin-top: 4px; }
   .controls { grid-area: controls; position: sticky; top: 16px; }
-  #advCard { grid-area: adv; }
   #whyCard { grid-area: why; }
   #yearCard { grid-area: year; }
   #advanced { grid-area: advanced; }
