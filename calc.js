@@ -1,8 +1,9 @@
 // Suomen verovuosi 2026. Lähteet: vero.fi valtion tuloveroasteikko, TVL 125 §
 // (työtulovähennys), TVL 106 § (perusvähennys), TVL 30 a § (yrittäjävähennys),
-// listaamattoman yhtiön osinko (TVL 33 b §), yhteisövero 20 %, YEL-maksu 24,40 %
-// (alaraja 9 423,09 €), sairausvakuutusmaksut (VNA 1026/2025) ja työnantajan
-// sairausvakuutusmaksu 1,91 %. Yleisradiovero 2,5 %, katto 160 €.
+// TVL 33 b § (listaamattoman yhtiön osinko), TVL 27 ja 46 § (yhtiön purku ja
+// hankintameno-olettama), yhteisövero 20 %, YEL-maksu 24,40 % (alaraja
+// 9 423,09 €), sairausvakuutusmaksut 2026 ja työnantajan sairausvakuutusmaksu
+// 1,91 %. Yleisradiovero 2,5 %, katto 160 €.
 
 export const TAX = {
   year: 2026,
@@ -36,6 +37,8 @@ export const TAX = {
   yleMax: 160,
   dividendBand: 0.08,
   dividendSoftCap: 150_000,
+  presumedCost: 0.2,
+  presumedCostLong: 0.4,
   state: [
     { from: 0, base: 0, rate: 0.1264 },
     { from: 22_000, base: 2780.8, rate: 0.19 },
@@ -101,6 +104,8 @@ function dividendSplit(dividend, nav) {
   const soft = Math.min(capitalDividend, TAX.dividendSoftCap);
   const aboveSoft = capitalDividend - soft;
   return {
+    capitalDividend,
+    earnedDividend,
     taxableCapital: soft * 0.25 + aboveSoft * 0.85,
     taxableEarned: earnedDividend * 0.75,
     taxFree: soft * 0.75 + aboveSoft * 0.15 + earnedDividend * 0.25,
@@ -111,6 +116,7 @@ function dividendSplit(dividend, nav) {
  * Henkilön verot yhdeltä vuodelta. YEL-maksu ei sisälly veroihin: toiminimellä
  * sen maksaa yrittäjä itse, oy:ssä yhtiö. Sairaanhoitomaksun perusteessa
  * YEL-työtulo korvaa oman yhtiön palkan ja toiminimen ansiotulo-osuuden.
+ * Päivärahamaksu vähennetään puhtaasta ansiotulosta (TVL 96 §).
  */
 export function taxPerson({
   salary = 0,
@@ -127,22 +133,37 @@ export function taxPerson({
   age65 = false,
 } = {}) {
   const div = dividendSplit(dividend, nav);
-  const wages = Math.max(0, salary) + Math.max(0, externalSalary);
+  const ownPay = Math.max(0, salary);
+  const outside = Math.max(0, externalSalary);
+  const business = Math.max(0, tmiEarned);
+  const wages = ownPay + outside;
   const earningDeduction = Math.min(TAX.earningDeduction, wages);
-  const accrualBase = Math.max(0, salary) + Math.max(0, externalSalary) + Math.max(0, tmiEarned);
+  const accrualBase = wages + business;
   const pureEarned = accrualBase - earningDeduction + div.taxableEarned;
   const pureCapital = Math.max(0, extraCapital) + div.taxableCapital;
 
-  const basic = perusvahennys(pureEarned);
-  const taxableEarned = Math.max(0, pureEarned - basic);
+  const insured = yelInsured && yel >= TAX.yelMin;
+  const yelBase = insured ? Math.max(0, yel) : 0;
+
+  const dailyBase = insured ? yelBase + outside : accrualBase;
+  let daily = 0;
+  if (dailyBase >= TAX.dailyAllowanceThreshold) {
+    daily = insured
+      ? TAX.entrepreneurDailyRate * yelBase + TAX.employeeDailyRate * outside
+      : TAX.employeeDailyRate * dailyBase;
+  }
+
+  const afterDaily = Math.max(0, pureEarned - daily);
+  const basic = perusvahennys(afterDaily);
+  const taxableEarned = Math.max(0, afterDaily - basic);
   const state = stateTax(taxableEarned);
   const municipal = taxableEarned * municipalRate;
   const church = taxableEarned * churchRate;
 
-  const insured = yelInsured && yel >= TAX.yelMin;
-  const medicalRaw = insured
-    ? Math.max(0, yel) + Math.max(0, externalSalary) - Math.min(TAX.earningDeduction, Math.max(0, externalSalary)) + div.taxableEarned
+  const medicalGross = insured
+    ? yelBase + outside - Math.min(TAX.earningDeduction, outside) + div.taxableEarned
     : pureEarned;
+  const medicalRaw = Math.max(0, medicalGross - daily);
   const medicalTaxable = Math.max(0, medicalRaw - perusvahennys(medicalRaw));
   const dividendShare = medicalRaw > 0 ? Math.min(1, div.taxableEarned / medicalRaw) : 0;
   const medical = medicalTaxable * (TAX.medicalRate + TAX.medicalSurcharge * dividendShare);
@@ -164,22 +185,10 @@ export function taxPerson({
     municipalPay *= factor;
     churchPay *= factor;
     medicalPay *= factor;
-    creditLeft = Math.max(0, creditLeft - other);
-  }
-
-  const dailyBase = insured ? Math.max(0, yel) + Math.max(0, externalSalary) : wages + Math.max(0, tmiEarned);
-  let daily = 0;
-  if (dailyBase >= TAX.dailyAllowanceThreshold) {
-    if (insured) {
-      daily = TAX.entrepreneurDailyRate * Math.max(0, yel) + TAX.employeeDailyRate * Math.max(0, externalSalary);
-    } else {
-      daily = TAX.employeeDailyRate * dailyBase;
-    }
   }
 
   const capitalTax = capitalIncomeTax(pureCapital);
-  const yleBase = Math.max(pureEarned + pureCapital, insured ? yel : 0);
-  const yle = Math.min(TAX.yleMax, TAX.yleRate * Math.max(0, yleBase - TAX.yleThreshold));
+  const yle = Math.min(TAX.yleMax, TAX.yleRate * Math.max(0, pureEarned + pureCapital - TAX.yleThreshold));
 
   const total = statePay + municipalPay + churchPay + medicalPay + daily + capitalTax + yle;
   return {
@@ -196,6 +205,9 @@ export function taxPerson({
     workCredit: credit,
     dividendTaxableEarned: div.taxableEarned,
     dividendTaxableCapital: div.taxableCapital,
+    dividendTaxFree: div.taxFree,
+    dividendCapitalGross: div.capitalDividend,
+    dividendEarnedGross: div.earnedDividend,
   };
 }
 
@@ -203,37 +215,38 @@ export function cloneCompany(c) {
   return { book: c.book, unrealized: c.unrealized, lossCarry: c.lossCarry };
 }
 
-function spend(state, amount) {
-  let left = Math.max(0, amount);
-  let gain = 0;
-  if (left <= 0) return { gain: 0, paid: 0 };
+export function companyMarket(company) {
+  return company.book + company.unrealized;
+}
+
+/** Myy sijoituksia. Myynnistä tuloutuu arvonnousua samassa suhteessa. */
+function sell(state, amount) {
   const market = state.book + state.unrealized;
-  const sold = Math.min(left, Math.max(0, market));
-  if (sold > 0 && market > 0) {
-    gain = state.unrealized * (sold / market);
-    state.unrealized -= gain;
-    state.book -= sold - gain;
-    left -= sold;
-  }
+  const sold = Math.min(Math.max(0, amount), Math.max(0, market));
+  if (sold <= 0 || market <= 0) return { gain: 0, paid: 0 };
+  const gain = state.unrealized * (sold / market);
+  state.unrealized -= gain;
+  state.book -= sold - gain;
   return { gain, paid: sold };
 }
 
 /**
- * Vie yhtiötä yhden vuoden. Yhtiö ei velkaannu: palkka ja osinko leikataan,
- * jos kassa ja realisoitavat sijoitukset eivät riitä. recognizeAll kirjaa
- * koko arvonnousun veronalaisena.
+ * Vie yhtiötä yhden vuoden. Menot maksetaan ensin vuoden tuloksesta. Sijoituksia
+ * myydään vain, jos tulos ei riitä, ja vasta myynti tulouttaa arvonnousua.
+ * Yhtiö ei velkaannu: palkka ja osinko leikataan, jos varat eivät riitä.
+ * recognizeAll kirjaa koko arvonnousun veronalaiseksi joka vuosi.
  */
 export function settleCompany(company, opts) {
   const rate = opts.rate || 0;
   const profit = opts.profit || 0;
   const yel = Math.max(0, opts.yel || 0);
   const extra = Math.max(0, opts.extra || 0);
-  const marketAfterReturn = (company.book + company.unrealized) * (1 + rate);
-  const funds = Math.max(0, marketAfterReturn + Math.max(0, profit));
-  let salary = Math.max(0, opts.salary || 0);
+  const wanted = Math.max(0, opts.dividend || 0);
+  const funds = Math.max(0, companyMarket(company) * (1 + rate) + profit);
   const maxSalary = Math.max(0, (funds - yel - extra) / (1 + TAX.employerHealth));
-  if (salary > maxSalary) salary = Math.max(0, maxSalary);
+  const salary = Math.min(Math.max(0, opts.salary || 0), maxSalary);
   const salaryCost = salary * (1 + TAX.employerHealth);
+  const costs = yel + extra + salaryCost;
 
   let taxGuess = 0;
   let last = null;
@@ -246,20 +259,21 @@ export function settleCompany(company, opts) {
       c.book += c.unrealized;
       c.unrealized = 0;
     }
-    if (profit > 0) c.book += profit;
+    let cash = Math.max(0, profit);
+    const pay = (amount) => {
+      const fromCash = Math.min(cash, Math.max(0, amount));
+      cash -= fromCash;
+      const sold = sell(c, amount - fromCash);
+      recognized += sold.gain;
+      return fromCash + sold.paid;
+    };
 
-    const fixedSpend = spend(c, yel + extra + salaryCost);
-    recognized += fixedSpend.gain;
+    const costsPaid = Math.min(costs, pay(costs + Math.max(0, -profit)));
+    const taxPaid = pay(taxGuess);
+    const dividendPaid = pay(Math.min(wanted, cash + Math.max(0, companyMarket(c))));
+    c.book += cash;
 
-    const taxSpend = spend(c, taxGuess);
-    recognized += taxSpend.gain;
-
-    const marketLeft = Math.max(0, c.book + c.unrealized);
-    const dividendPaid = Math.min(Math.max(0, opts.dividend || 0), marketLeft);
-    recognized += spend(c, dividendPaid).gain;
-
-    const paidCosts = Math.min(yel + extra + salaryCost, fixedSpend.paid);
-    let taxable = profit + recognized - paidCosts;
+    let taxable = profit + recognized - costsPaid;
     let lossCarry = company.lossCarry;
     if (taxable < 0) {
       lossCarry += -taxable;
@@ -269,16 +283,14 @@ export function settleCompany(company, opts) {
       lossCarry -= used;
       taxable -= used;
     }
-    const corpTax = TAX.corp * Math.max(0, taxable);
+    const corpTax = TAX.corp * taxable;
     c.lossCarry = lossCarry;
-    last = { company: c, corpTax, recognized, dividendPaid, salary, salaryCost, taxPaid: taxSpend.paid };
+    last = { company: c, corpTax, recognized, dividendPaid, salary, salaryCost, taxPaid };
     if (Math.abs(corpTax - taxGuess) < 0.05) break;
     taxGuess = corpTax;
   }
 
-  if (last && last.taxPaid + 0.5 < last.corpTax) {
-    spend(last.company, last.corpTax - last.taxPaid);
-  }
+  if (last.taxPaid + 0.5 < last.corpTax) sell(last.company, last.corpTax - last.taxPaid);
 
   last.company.book = round2(last.company.book);
   last.company.unrealized = round2(Math.max(0, last.company.unrealized));
@@ -311,19 +323,20 @@ function personSettings(input) {
   };
 }
 
-function ownerNet(salary, dividend, taxes) {
-  return salary + dividend - taxes.total;
+/** Muu kuin yrityksestä tuleva tulo, joka on käytettävissä nettotarpeeseen. */
+function outsideIncome(input) {
+  return Math.max(0, input.externalSalary || 0) + Math.max(0, input.otherCapital || 0);
 }
 
 /**
- * Etsii palkan ja osingon.
- * mode "hold": täytä nettotarve ja jätä mahdollisimman paljon yhtiöön.
- * mode "drain": nosta vuoden ylijäämä (jätä vähintään floor euroa kirjanpitoarvoa),
- * ja jos nettotarve vaatii, pura floorin alle.
+ * Etsii palkan ja osingon niin, että nettotarve täyttyy ja yhtiöön jää
+ * mahdollisimman paljon. net sisältää myös muut tulot, ja vero on koko
+ * henkilövero kaikista tuloista.
  */
 export function chooseWithdrawal(company, input, opts) {
-  const { profit, yel, need, rate, recognizeAll, mode, floor } = opts;
+  const { profit, yel, need, rate, recognizeAll } = opts;
   const base = personSettings(input);
+  const outside = outsideIncome(input);
 
   const probe = (salary, dividend) => {
     const settled = settleCompany(company, {
@@ -345,92 +358,86 @@ export function chooseWithdrawal(company, input, opts) {
     return {
       settled,
       taxes,
-      net: ownerNet(settled.salary, settled.dividendPaid, taxes),
+      net: settled.salary + settled.dividendPaid + outside - taxes.total,
       salary: settled.salary,
       dividend: settled.dividendPaid,
+      wealth: companyMarket(settled.company),
     };
   };
 
+  const open = settleCompany(company, {
+    profit,
+    yel,
+    extra: input.oyExtra,
+    rate,
+    salary: 0,
+    dividend: 0,
+    recognizeAll: true,
+  });
+  const room = Math.max(0, companyMarket(open.company));
+
+  if (input.dividendShare !== "auto" && input.dividendShare != null) {
+    const share = Math.min(1, Math.max(0, Number(input.dividendShare) || 0));
+    const at = (gross) => probe(gross * (1 - share), gross * share);
+    const funds = Math.max(0, companyMarket(company) * (1 + (rate || 0)) + Math.max(0, profit));
+    const cap = Math.max(funds, room, need * 4, 10_000);
+    const none = at(0);
+    if (none.net >= need - 1) return none;
+    const top = at(cap);
+    if (top.net < need - 1) return top;
+    let lo = 0;
+    let hi = cap;
+    let best = top;
+    for (let i = 0; i < 22; i += 1) {
+      const mid = (lo + hi) / 2;
+      const trial = at(mid);
+      if (trial.net >= need - 1) {
+        best = trial;
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+    return best;
+  }
+
   const maxSalary = Math.max(10_000, Math.min(250_000, Math.max(profit, need) * 1.35));
   const steps = 48;
-  const step = maxSalary / steps;
-  const salaries = [0];
-  for (let i = 1; i <= steps; i += 1) salaries.push(step * i);
-
-  const maxDividendRoom = () => {
-    const open = settleCompany(company, {
-      profit,
-      yel,
-      extra: input.oyExtra,
-      rate,
-      salary: 0,
-      dividend: 0,
-      recognizeAll: true,
-    });
-    return Math.max(0, open.company.book + open.company.unrealized);
-  };
-  const room = maxDividendRoom();
-
-  if (mode === "hold") {
-    let best = null;
-    for (const salary of salaries) {
-      const atZero = probe(salary, 0);
-      let chosen = atZero;
-      if (atZero.net < need - 1 && room > 0) {
-        let lo = 0;
-        let hi = room;
-        let feasible = null;
-        for (let i = 0; i < 18; i += 1) {
-          const mid = (lo + hi) / 2;
-          const trial = probe(salary, mid);
-          if (trial.net >= need) {
-            feasible = trial;
-            hi = mid;
-          } else {
-            lo = mid;
-          }
-        }
-        chosen = feasible || probe(salary, room);
-      }
-      const wealth = chosen.settled.company.book + chosen.settled.company.unrealized;
-      const meets = chosen.net >= need - 1;
-      if (
-        !best ||
-        (meets && !best.meets) ||
-        (meets === best.meets && wealth > best.wealth + 1) ||
-        (meets === best.meets && Math.abs(wealth - best.wealth) <= 1 && chosen.net > best.choice.net)
-      ) {
-        best = { meets, wealth, choice: chosen };
-      }
-    }
-    return best.choice;
-  }
-
   let best = null;
-  const score = (choice) => choice.settled.company.book + choice.settled.company.unrealized;
-  for (const salary of salaries) {
-    let lo = 0;
-    let hi = room;
-    let keep = probe(salary, 0);
-    for (let i = 0; i < 16; i += 1) {
-      const mid = (lo + hi) / 2;
-      const trial = probe(salary, mid);
-      if (score(trial) > floor) lo = mid;
-      else hi = mid;
-      keep = trial;
+  for (let i = 0; i <= steps; i += 1) {
+    const salary = (maxSalary / steps) * i;
+    let chosen = probe(salary, 0);
+    if (chosen.net < need - 1 && room > 0) {
+      let lo = 0;
+      let hi = room;
+      let feasible = null;
+      for (let j = 0; j < 18; j += 1) {
+        const mid = (lo + hi) / 2;
+        const trial = probe(salary, mid);
+        if (trial.net >= need) {
+          feasible = trial;
+          hi = mid;
+        } else {
+          lo = mid;
+        }
+      }
+      chosen = feasible || probe(salary, room);
     }
-    const atFloor = probe(salary, hi);
-    let choice = atFloor.net >= keep.net ? atFloor : keep;
-    if (choice.net < need) {
-      const extra = probe(salary, room);
-      if (extra.net > choice.net) choice = extra;
+    const meets = chosen.net >= need - 1;
+    if (
+      !best ||
+      (meets && !best.meets) ||
+      (meets === best.meets && chosen.wealth > best.choice.wealth + 1) ||
+      (meets === best.meets && Math.abs(chosen.wealth - best.choice.wealth) <= 1 && chosen.net > best.choice.net)
+    ) {
+      best = { meets, choice: chosen };
     }
-    if (!best || choice.net > best.net + 0.5) best = choice;
+    if (meets && chosen.dividend < 0.01 && salary > 0) break;
   }
-  return best;
+  return best.choice;
 }
 
-function tmiSplit(profitAfterYel, lossCarry, nav, shareChoice) {
+function tmiSplit(profitAfterYel, lossCarry) {
   let income = profitAfterYel;
   let loss = lossCarry;
   if (income < 0) {
@@ -441,46 +448,44 @@ function tmiSplit(profitAfterYel, lossCarry, nav, shareChoice) {
     loss -= used;
     income -= used;
   }
-  const deduction = income > 0 ? income * TAX.entrepreneurDeduction : 0;
-  const distributable = income - deduction;
-  const shares = shareChoice === "auto" ? [0, 0.1, 0.2] : [shareChoice];
-  return { loss, distributable, shares, deduction };
+  const deduction = income * TAX.entrepreneurDeduction;
+  return { loss, distributable: income - deduction, deduction };
 }
 
-function taxTmiBusiness(distributable, nav, share, input) {
-  const capital = Math.min(distributable, Math.max(0, nav) * share);
-  const earned = distributable - capital;
-  const taxes = taxPerson({
-    ...personSettings(input),
-    tmiEarned: earned,
-    extraCapital: capital,
-  });
-  return { taxes, capital, earned };
-}
-
-function chooseTmiShare(distributable, nav, input, shareChoice) {
-  const shares = shareChoice === "auto" ? [0, 0.1, 0.2] : [shareChoice];
+function chooseTmiShare(distributable, nav, input) {
+  const shares = input.tmiShare === "auto" ? [0, 0.1, 0.2] : [input.tmiShare];
   let best = null;
   for (const share of shares) {
-    const result = taxTmiBusiness(distributable, nav, share, input);
-    if (!best || result.taxes.total < best.taxes.total) best = { share, ...result };
+    const capital = Math.min(distributable, Math.max(0, nav) * share);
+    const earned = distributable - capital;
+    const taxes = taxPerson({
+      ...personSettings(input),
+      tmiEarned: earned,
+      extraCapital: capital + input.otherCapital,
+    });
+    if (!best || taxes.total < best.taxes.total) best = { share, capital, earned, taxes };
   }
   return best;
 }
 
-function growPortfolio(portfolio, rate) {
-  portfolio.market = round2(portfolio.market * (1 + rate));
-}
-
-function payPortfolioTax(portfolio, tax, realize) {
-  portfolio.market = round2(portfolio.market - tax);
-  if (realize) portfolio.basis = portfolio.market;
-}
-
 function addCash(portfolio, cash) {
-  if (cash === 0) return;
+  if (cash <= 0) return;
   portfolio.basis = round2(portfolio.basis + cash);
   portfolio.market = round2(portfolio.market + cash);
+}
+
+/**
+ * Oman salkun vuosi: tuotto, ja jos tuotto realisoituu joka vuosi, vero siitä
+ * muun pääomatulon päälle. Palauttaa maksetun veron.
+ */
+function growPortfolio(portfolio, rate, realize, taxableCapitalAlready) {
+  portfolio.market = round2(portfolio.market * (1 + rate));
+  if (!realize) return 0;
+  const gain = Math.max(0, portfolio.market - portfolio.basis);
+  const tax = capitalIncomeTax(taxableCapitalAlready + gain) - capitalIncomeTax(taxableCapitalAlready);
+  portfolio.market = round2(portfolio.market - tax);
+  portfolio.basis = portfolio.market;
+  return tax;
 }
 
 /**
@@ -496,9 +501,7 @@ export function withdrawPortfolio(portfolio, netNeeded, taxableCapitalAlready) {
   let hi = market;
   for (let i = 0; i < 24; i += 1) {
     const mid = (lo + hi) / 2;
-    const gain = mid * gainRatio;
-    const net = mid - taxOn(gain);
-    if (net >= netNeeded) hi = mid;
+    if (mid - taxOn(mid * gainRatio) >= netNeeded) hi = mid;
     else lo = mid;
   }
   const sold = Math.min(market, hi);
@@ -509,278 +512,343 @@ export function withdrawPortfolio(portfolio, netNeeded, taxableCapitalAlready) {
   return { takenNet: round2(sold - tax), gain, tax };
 }
 
-function latentPortfolioTax(portfolio) {
-  const gain = Math.max(0, portfolio.market - portfolio.basis);
-  return capitalIncomeTax(gain);
+function discount(amount, rate, yearsAhead) {
+  if (!yearsAhead || !rate) return amount;
+  return amount / (1 + rate) ** yearsAhead;
 }
 
-export function companyMarket(company) {
-  return company.book + company.unrealized;
-}
-
-export function liquidate(company, portfolio, input) {
-  const settled = settleCompany(company, {
-    profit: 0,
-    rate: 0,
-    salary: 0,
-    dividend: 0,
-    yel: 0,
-    extra: 0,
-    recognizeAll: true,
-  });
-  const equity = Math.max(0, settled.company.book + settled.company.unrealized);
-  const gain = Math.max(0, portfolio.market - portfolio.basis);
-  const taxes = taxPerson({
-    dividend: equity,
-    nav: equity,
-    extraCapital: gain,
-    municipalRate: input.municipalRate,
-    churchRate: input.churchRate,
-    children: input.children,
-    age65: input.age65,
-    yelInsured: false,
-  });
+/**
+ * Lopetus. Yhtiö puretaan: sijoitusten arvonnousu tuloutuu yhtiölle (20 %), ja
+ * omistajan jako-osa verotetaan luovutusvoittona (TVL 27 §). Hankintameno on
+ * sijoitettu pääoma tai hankintameno-olettama, kumpi on suurempi: 20 %, ja
+ * 40 % kun osakkeet on omistettu vähintään 10 vuotta. Oma salkku myydään
+ * samana vuonna, ja voitot verotetaan yhdessä.
+ */
+export function liquidate(company, portfolio, input, ownedYears = 0) {
+  const settled = settleCompany(company, { recognizeAll: true });
+  const equity = Math.max(0, companyMarket(settled.company));
+  const presumed = equity * (ownedYears >= 10 ? TAX.presumedCostLong : TAX.presumedCost);
+  const cost = Math.max(Math.max(0, input.oyEquity || 0), presumed);
+  const shareGain = Math.max(0, equity - cost);
+  const portfolioGain = Math.max(0, portfolio.market - portfolio.basis);
+  const gains = shareGain + portfolioGain;
+  const personalTax = gains > 0
+    ? taxPerson({ extraCapital: gains, municipalRate: input.municipalRate, churchRate: input.churchRate }).total
+    : 0;
   return {
-    net: round2(equity + portfolio.market - taxes.total),
+    net: round2(equity + portfolio.market - personalTax),
     equity: round2(equity),
     corpTax: settled.corpTax,
-    personalTax: round2(taxes.total),
-    gross: round2(companyMarket(company) + portfolio.market),
-    afterCorp: round2(equity + portfolio.market - latentPortfolioTax(portfolio)),
+    personalTax: round2(personalTax),
+    shareGain: round2(shareGain),
+  };
+}
+
+/**
+ * Eläkevaihe, sama molemmille poluille. Joka vuosi nostetaan target(y) euroa
+ * verojen jälkeen: oy:stä ensin osinkona, ja jos yhtiö ei riitä, omasta
+ * salkusta. Toiminimellä (company null) nostot tulevat salkusta. Viimeisenä
+ * eläkevuonna kaikki loput myydään ja yhtiö puretaan. Vuosi 0 on työuran
+ * päättymishetki, ja myöhemmät eurot muutetaan sen hetken rahaksi
+ * sijoitustuotolla, jotta pelkkä odottaminen ei kasvata lukua.
+ */
+export function retire(company, portfolio, input, { years = 1, target = 0, careerYears = 0 } = {}) {
+  const rate = Number(input.rate) || 0;
+  const realize = input.realize === "annual";
+  const total = Math.max(1, Math.round(Number(years) || 1));
+  const wantOf = typeof target === "function" ? target : () => Math.max(0, Number(target) || 0);
+  const person = (dividend, nav) => taxPerson({
+    dividend,
+    nav,
+    municipalRate: input.municipalRate,
+    churchRate: input.churchRate,
+  });
+  let co = company ? cloneCompany(company) : emptyCompany(0);
+  const pf = { basis: portfolio.basis, market: portfolio.market };
+  let withdrawn = 0;
+  let leftover = 0;
+  let taxes = 0;
+  let shortYears = 0;
+  const path = [];
+
+  for (let y = 0; y < total; y += 1) {
+    const grow = y > 0;
+    const pv = (value) => discount(value, rate, y);
+
+    if (y === total - 1) {
+      let tax = 0;
+      if (grow) {
+        const settled = settleCompany(co, { rate, recognizeAll: realize });
+        co = settled.company;
+        tax += settled.corpTax + growPortfolio(pf, rate, realize, 0);
+      }
+      const exit = liquidate(co, pf, input, careerYears + y);
+      leftover = pv(exit.net);
+      taxes += pv(tax + exit.corpTax + exit.personalTax);
+      path.push({ year: y + 1, net: round2(exit.net), wealth: round2(exit.net), final: true });
+      break;
+    }
+
+    const want = Math.max(0, wantOf(y));
+    let net = 0;
+    let tax = 0;
+    let capital = 0;
+    if (companyMarket(co) > 1) {
+      const nav = co.book;
+      const probe = (dividend) => {
+        const settled = settleCompany(co, { dividend, rate: grow ? rate : 0, recognizeAll: grow && realize });
+        const t = person(settled.dividendPaid, nav);
+        return { settled, t, net: settled.dividendPaid - t.total };
+      };
+      let pick = probe(0);
+      if (want > 0) {
+        const all = probe(companyMarket(co) * (1 + rate) * 2 + 1);
+        pick = all;
+        if (all.net > want) {
+          let lo = 0;
+          let hi = all.settled.dividendPaid;
+          for (let i = 0; i < 30 && hi - lo > 1; i += 1) {
+            const mid = (lo + hi) / 2;
+            const trial = probe(mid);
+            if (trial.net >= want) {
+              pick = trial;
+              hi = mid;
+            } else {
+              lo = mid;
+            }
+          }
+        }
+      }
+      co = pick.settled.company;
+      net += pick.net;
+      tax += pick.t.total + pick.settled.corpTax;
+      capital = pick.t.taxableCapital;
+    }
+    if (grow) tax += growPortfolio(pf, rate, realize, capital);
+    if (net < want - 0.5 && pf.market > 1) {
+      const sold = withdrawPortfolio(pf, want - net, capital);
+      net += sold.takenNet;
+      tax += sold.tax;
+    }
+    if (net < want - 1) shortYears += 1;
+    withdrawn += pv(net);
+    taxes += pv(tax);
+    path.push({ year: y + 1, net: round2(net), wealth: liquidate(co, pf, input, careerYears + y).net, final: false });
+  }
+
+  return {
+    usable: round2(withdrawn + leftover),
+    withdrawn: round2(withdrawn),
+    leftover: round2(leftover),
+    tax: round2(taxes),
+    shortYears,
+    path,
   };
 }
 
 function normalize(input) {
-  const years = Math.max(1, Math.min(40, Math.round(input.years || 1)));
+  const num = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const auto = (value) => value == null || value === "" || value === "auto";
   return {
-    profit: Number(input.profit) || 0,
-    profitGrowth: Number(input.profitGrowth) || 0,
-    netNeed: Math.max(0, Number(input.netNeed) || 0),
-    needGrowth: Number(input.needGrowth) || 0,
-    years,
-    rate: Number(input.rate) || 0,
+    profit: num(input.profit),
+    profitGrowth: num(input.profitGrowth),
+    netNeed: Math.max(0, num(input.netNeed)),
+    needGrowth: num(input.needGrowth),
+    years: Math.max(1, Math.min(40, Math.round(num(input.years, 1)))),
+    retireYears: Math.max(1, Math.min(50, Math.round(num(input.retireYears, 25)))),
+    rate: num(input.rate),
     realize: input.realize === "annual" ? "annual" : "end",
-    municipalRate: Number(input.municipalRate) || 0,
-    churchRate: Math.max(0, Number(input.churchRate) || 0),
-    yelIncome: Math.max(0, Number(input.yelIncome) || 0),
+    municipalRate: num(input.municipalRate, 0.0757),
+    churchRate: Math.max(0, num(input.churchRate)),
+    yelIncome: Math.max(0, num(input.yelIncome)),
     yelStarter: Boolean(input.yelStarter),
-    oyExtra: Math.max(0, Number(input.oyExtra) || 0),
-    tmiNav: Math.max(0, Number(input.tmiNav) || 0),
-    oyEquity: Math.max(0, Number(input.oyEquity) || 0),
-    personal: Math.max(0, Number(input.personal) || 0),
-    externalSalary: Math.max(0, Number(input.externalSalary) || 0),
-    otherCapital: Math.max(0, Number(input.otherCapital) || 0),
-    children: Math.max(0, Math.round(Number(input.children) || 0)),
+    oyExtra: Math.max(0, num(input.oyExtra)),
+    tmiNav: Math.max(0, num(input.tmiNav)),
+    oyEquity: Math.max(0, num(input.oyEquity)),
+    personal: Math.max(0, num(input.personal)),
+    externalSalary: Math.max(0, num(input.externalSalary)),
+    otherCapital: Math.max(0, num(input.otherCapital)),
+    children: Math.max(0, Math.round(num(input.children))),
     age65: Boolean(input.age65),
     tmiShare: input.tmiShare === 0 || input.tmiShare === 0.1 || input.tmiShare === 0.2 ? input.tmiShare : "auto",
+    postWithdrawal: auto(input.postWithdrawal) ? "auto" : Math.max(0, num(input.postWithdrawal)),
+    dividendShare: auto(input.dividendShare) ? "auto" : Math.min(1, Math.max(0, num(input.dividendShare))),
   };
 }
 
-function stepPortfolioGain(portfolio, rate, realize) {
-  const before = portfolio.market;
-  growPortfolio(portfolio, rate);
-  const gain = realize ? Math.max(0, portfolio.market - portfolio.basis) : 0;
-  return { gain, grew: portfolio.market - before };
-}
-
+/**
+ * Kaksi polkua samasta tuloksesta: toiminimi, jossa ylijäämä sijoitetaan omaan
+ * salkkuun, ja osakeyhtiö, jossa ylijäämä jää yhtiöön ja sijoitetaan siellä.
+ * Työvuosien rivien wealth on varallisuus verojen jälkeen, jos kaikki
+ * myytäisiin sen vuoden lopussa. Eläkevaihe lasketaan kerran, työuran lopusta.
+ */
 export function simulate(raw) {
   const input = normalize(raw);
-  const recognizeAll = input.realize === "annual";
+  const realize = input.realize === "annual";
+  const outside = outsideIncome(input);
   let tmiLoss = 0;
-  let tmi = {
-    nav: input.tmiNav,
-    portfolio: emptyPortfolio(input.personal),
-    cumTax: 0,
-    cumYel: 0,
-    cumLiving: 0,
-    shortfall: 0,
-  };
-  let hold = {
+  const tmi = { portfolio: emptyPortfolio(input.personal), cumTax: 0, cumYel: 0, cumLiving: 0, shortfall: 0 };
+  const oy = {
     company: emptyCompany(input.oyEquity),
     portfolio: emptyPortfolio(input.personal),
     cumTax: 0,
     cumCorp: 0,
     cumYel: 0,
+    cumCosts: 0,
     cumLiving: 0,
     shortfall: 0,
-    last: null,
-  };
-  let drain = {
-    company: emptyCompany(input.oyEquity),
-    portfolio: emptyPortfolio(input.personal),
-    floor: input.oyEquity,
-    cumTax: 0,
-    cumCorp: 0,
-    cumYel: 0,
-    cumLiving: 0,
-    shortfall: 0,
-    last: null,
   };
 
   const rows = [];
   for (let year = 1; year <= input.years; year += 1) {
     const profit = input.profit * (1 + input.profitGrowth) ** (year - 1);
     const need = input.netNeed * (1 + input.needGrowth) ** (year - 1);
-    const starter = input.yelStarter && year <= 4;
-    const yel = yelPayment(input.yelIncome, { starter });
+    const yel = yelPayment(input.yelIncome, { starter: input.yelStarter && year <= 4 });
 
     // Toiminimi
-    stepPortfolioGain(tmi.portfolio, input.rate, false);
-    const annualGain = recognizeAll ? Math.max(0, tmi.portfolio.market - tmi.portfolio.basis) : 0;
-    const afterYel = profit - yel;
-    const splitBase = tmiSplit(afterYel, tmiLoss, tmi.nav, input.tmiShare);
-    tmiLoss = splitBase.loss;
-    const picked = chooseTmiShare(splitBase.distributable, tmi.nav, input, input.tmiShare);
-    const withGain = taxPerson({
-      ...personSettings(input),
-      tmiEarned: picked.earned,
-      extraCapital: picked.capital + annualGain + input.otherCapital,
-    });
-    const businessOnly = taxPerson({
-      ...personSettings(input),
-      tmiEarned: picked.earned,
-      extraCapital: picked.capital + input.otherCapital,
-    });
-    const investmentTax = Math.max(0, withGain.total - businessOnly.total);
-    payPortfolioTax(tmi.portfolio, investmentTax, recognizeAll);
-    const cash = profit - yel - businessOnly.total;
-    let living = cash;
-    if (cash >= need) addCash(tmi.portfolio, cash - need);
+    const split = tmiSplit(profit - yel, tmiLoss);
+    tmiLoss = split.loss;
+    const picked = chooseTmiShare(split.distributable, input.tmiNav, input);
+    const tmiCapital = picked.taxes.taxableCapital;
+    const tmiInvestTax = growPortfolio(tmi.portfolio, input.rate, realize, tmiCapital);
+    const tmiCash = profit - yel + outside - picked.taxes.total;
+    let tmiLiving = tmiCash;
+    if (tmiCash >= need) addCash(tmi.portfolio, tmiCash - need);
     else {
-      const gap = need - cash;
-      const sold = withdrawPortfolio(tmi.portfolio, gap, picked.capital + annualGain + input.otherCapital);
-      living = cash + sold.takenNet;
-      tmi.shortfall += Math.max(0, need - living);
+      const sold = withdrawPortfolio(tmi.portfolio, need - tmiCash, tmiCapital);
+      tmi.cumTax += sold.tax;
+      tmiLiving = tmiCash + sold.takenNet;
+      tmi.shortfall += Math.max(0, need - tmiLiving);
     }
-    tmi.cumTax += businessOnly.total + investmentTax;
+    tmi.cumTax += picked.taxes.total + tmiInvestTax;
     tmi.cumYel += yel;
-    tmi.cumLiving += Math.min(need, Math.max(0, living));
-    const tmiExit = liquidate(emptyCompany(0), tmi.portfolio, input);
+    tmi.cumLiving += Math.min(need, Math.max(0, tmiLiving));
+    const tmiExit = liquidate(emptyCompany(0), tmi.portfolio, input, year);
+    const tmiDetail = {
+      share: picked.share,
+      earned: round2(picked.earned),
+      capital: round2(picked.capital),
+      deduction: round2(split.deduction),
+      distributable: round2(split.distributable),
+      taxes: picked.taxes,
+      cash: round2(tmiCash),
+      saved: round2(Math.max(0, tmiCash - need)),
+    };
 
-    // Osakeyhtiö, ylijäämä yhtiöön
-    const holdChoice = chooseWithdrawal(hold.company, input, {
+    // Osakeyhtiö
+    const nav = oy.company.book;
+    const choice = chooseWithdrawal(oy.company, input, {
       profit,
       yel,
       need,
       rate: input.rate,
-      recognizeAll,
-      mode: "hold",
-      floor: 0,
+      recognizeAll: realize,
     });
-    hold.company = holdChoice.settled.company;
-    const holdInvestTax = applyPersonalReturn(hold, input, recognizeAll, holdChoice.taxes.taxableCapital);
-    let holdLiving = holdChoice.net;
-    if (holdChoice.net >= need) addCash(hold.portfolio, holdChoice.net - need);
+    oy.company = choice.settled.company;
+    const oyCapital = choice.taxes.taxableCapital;
+    const oyInvestTax = growPortfolio(oy.portfolio, input.rate, realize, oyCapital);
+    let oyLiving = choice.net;
+    if (choice.net >= need) addCash(oy.portfolio, choice.net - need);
     else {
-      const sold = withdrawPortfolio(hold.portfolio, need - holdChoice.net, holdChoice.taxes.taxableCapital);
-      holdLiving = holdChoice.net + sold.takenNet;
-      hold.shortfall += Math.max(0, need - holdLiving);
+      const sold = withdrawPortfolio(oy.portfolio, need - choice.net, oyCapital);
+      oy.cumTax += sold.tax;
+      oyLiving = choice.net + sold.takenNet;
+      oy.shortfall += Math.max(0, need - oyLiving);
     }
-    hold.cumTax += holdChoice.taxes.total + holdInvestTax;
-    hold.cumCorp += holdChoice.settled.corpTax;
-    hold.cumYel += yel;
-    hold.cumLiving += Math.min(need, Math.max(0, holdLiving));
-    hold.last = { salary: holdChoice.salary, dividend: holdChoice.dividend, taxes: holdChoice.taxes, corp: holdChoice.settled.corpTax };
-    const holdExit = liquidate(hold.company, hold.portfolio, input);
-
-    // Osakeyhtiö, ylijäämä itselle
-    const drainChoice = chooseWithdrawal(drain.company, input, {
-      profit,
-      yel,
-      need,
-      rate: input.rate,
-      recognizeAll: true,
-      mode: "drain",
-      floor: drain.floor,
-    });
-    drain.company = drainChoice.settled.company;
-    const drainInvestTax = applyPersonalReturn(drain, input, recognizeAll, drainChoice.taxes.taxableCapital);
-    let drainLiving = drainChoice.net;
-    if (drainChoice.net >= need) addCash(drain.portfolio, drainChoice.net - need);
-    else {
-      const sold = withdrawPortfolio(drain.portfolio, need - drainChoice.net, drainChoice.taxes.taxableCapital);
-      drainLiving = drainChoice.net + sold.takenNet;
-      drain.shortfall += Math.max(0, need - drainLiving);
-    }
-    drain.cumTax += drainChoice.taxes.total + drainInvestTax;
-    drain.cumCorp += drainChoice.settled.corpTax;
-    drain.cumYel += yel;
-    drain.cumLiving += Math.min(need, Math.max(0, drainLiving));
-    drain.last = { salary: drainChoice.salary, dividend: drainChoice.dividend, taxes: drainChoice.taxes, corp: drainChoice.settled.corpTax };
-    const drainExit = liquidate(drain.company, drain.portfolio, input);
+    const side = choice.settled.salaryCost - choice.salary;
+    oy.cumTax += choice.taxes.total + oyInvestTax;
+    oy.cumCorp += choice.settled.corpTax;
+    oy.cumYel += yel;
+    oy.cumCosts += input.oyExtra + side;
+    oy.cumLiving += Math.min(need, Math.max(0, oyLiving));
+    const oyDetail = {
+      salary: choice.salary,
+      dividend: choice.dividend,
+      taxes: choice.taxes,
+      corp: choice.settled.corpTax,
+      nav: round2(nav),
+      side: round2(side),
+      net: round2(choice.net),
+      saved: round2(Math.max(0, choice.net - need)),
+    };
+    const oyExit = liquidate(oy.company, oy.portfolio, input, year);
 
     rows.push({
       year,
       profit: round2(profit),
       need: round2(need),
       yel,
-      tmi: snapshot("tmi", tmiExit, tmi, { share: picked.share, earned: picked.earned, capital: picked.capital, taxes: businessOnly }),
-      hold: snapshot("hold", holdExit, hold, hold.last),
-      drain: snapshot("drain", drainExit, drain, drain.last),
+      tmi: { wealth: tmiExit.net, portfolio: round2(tmi.portfolio.market), detail: tmiDetail },
+      oy: {
+        wealth: oyExit.net,
+        company: round2(companyMarket(oy.company)),
+        portfolio: round2(oy.portfolio.market),
+        detail: oyDetail,
+      },
     });
   }
 
+  const target = (y) => (input.postWithdrawal === "auto"
+    ? input.netNeed * (1 + input.needGrowth) ** (input.years + y)
+    : input.postWithdrawal);
+  const plan = { years: input.retireYears, target, careerYears: input.years };
+  const tmiRetire = retire(null, tmi.portfolio, input, plan);
+  const oyRetire = retire(oy.company, oy.portfolio, input, plan);
+  const last = rows[rows.length - 1];
+  const summarize = (bag, ret, extra) => ({
+    cumLiving: round2(bag.cumLiving),
+    cumTax: round2(bag.cumTax),
+    cumYel: round2(bag.cumYel),
+    shortfall: round2(bag.shortfall),
+    retireNet: ret.withdrawn,
+    leftover: ret.leftover,
+    usable: ret.usable,
+    retireTax: ret.tax,
+    retireShortYears: ret.shortYears,
+    retirePath: ret.path,
+    total: round2(bag.cumLiving + ret.usable),
+    ...extra,
+  });
+  const tmiSummary = summarize(tmi, tmiRetire, {
+    cumCorp: 0,
+    cumCosts: 0,
+    company: 0,
+    portfolio: last.tmi.portfolio,
+    detail: last.tmi.detail,
+  });
+  const oySummary = summarize(oy, oyRetire, {
+    cumCorp: round2(oy.cumCorp),
+    cumCosts: round2(oy.cumCosts),
+    company: last.oy.company,
+    portfolio: last.oy.portfolio,
+    detail: last.oy.detail,
+  });
   return {
     input,
     rows,
     summary: {
-      tmi: summarize(rows, "tmi", input),
-      hold: summarize(rows, "hold", input),
-      drain: summarize(rows, "drain", input),
+      tmi: tmiSummary,
+      oy: oySummary,
+      retireTarget: round2(target(0)),
+      advantage: round2(oySummary.total - tmiSummary.total),
     },
   };
 }
 
-function applyPersonalReturn(bag, input, recognizeAll, taxableCapitalAlready) {
-  const before = bag.portfolio.market;
-  growPortfolio(bag.portfolio, input.rate);
-  if (!recognizeAll) return 0;
-  const gain = Math.max(0, bag.portfolio.market - bag.portfolio.basis);
-  const tax = capitalIncomeTax(taxableCapitalAlready + gain) - capitalIncomeTax(taxableCapitalAlready);
-  payPortfolioTax(bag.portfolio, tax, true);
-  if (bag.portfolio.market < before && tax === 0) return 0;
-  return round2(tax);
-}
-
-function snapshot(kind, exit, bag, detail) {
-  const company = bag.company || emptyCompany(0);
-  return {
-    kind,
-    exit: exit.net,
-    gross: exit.gross,
-    afterCorp: exit.afterCorp,
-    equity: exit.equity,
-    company: round2(companyMarket(company)),
-    companyBook: round2(company.book),
-    portfolio: round2(bag.portfolio.market),
-    shortfall: round2(bag.shortfall),
-    cumTax: round2(bag.cumTax),
-    cumCorp: round2(bag.cumCorp || 0),
-    cumYel: round2(bag.cumYel),
-    cumLiving: round2(bag.cumLiving),
-    detail,
-  };
-}
-
-function summarize(rows, key, input) {
-  const last = rows[rows.length - 1][key];
-  let profit = 0;
-  for (const row of rows) profit += row.profit;
-  const bagNote = last;
-  return {
-    years: input.years,
-    profit: round2(profit),
-    exit: last.exit,
-    gross: last.gross,
-    afterCorp: last.afterCorp,
-    equity: last.equity,
-    company: last.company,
-    portfolio: last.portfolio,
-    shortfall: last.shortfall,
-    cumTax: last.cumTax,
-    cumCorp: last.cumCorp,
-    cumYel: last.cumYel,
-    cumLiving: last.cumLiving,
-    detail: bagNote.detail,
-  };
+/**
+ * Oy:n etu (käteen yhteensä, oy − toiminimi) eri vuosituloksilla. Muut
+ * syötteet pysyvät ennallaan.
+ */
+export function advantageCurve(raw, profits) {
+  return profits.map((profit) => {
+    const { summary } = simulate({ ...raw, profit });
+    return {
+      profit,
+      advantage: summary.advantage,
+      shortfall: summary.tmi.shortfall > 1 || summary.oy.shortfall > 1,
+    };
+  });
 }

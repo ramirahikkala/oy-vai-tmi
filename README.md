@@ -1,12 +1,17 @@
 # Oy vai toiminimi
 
-Staattinen laskuri, joka vertaa toiminimeä ja osakeyhtiötä vuoden 2026 verosäännöillä. Sama vuosittainen tulos ja sama käteen jäävä nettotarve. Ylijäämä sijoitetaan joko yhtiön sisälle tai henkilökohtaiseen salkkuun.
+Staattinen laskuri, joka näyttää, millä tuloksella osakeyhtiö kannattaa toiminimeä paremmin. Verovuoden 2026 säännöt.
 
-Kolme polkua:
+Kaksi polkua samasta tuloksesta ja samasta nettotarpeesta:
 
-- **Toiminimi.** Tulos verotetaan joka vuosi, ylijäämä menee omaan salkkuun.
-- **Oy, ylijäämä yhtiöön.** Palkka ja osinko täyttävät nettotarpeen, loput jäävät yhtiöön ja sijoitetaan siellä.
-- **Oy, ylijäämä itselle.** Vuoden voitto nostetaan ja sijoitetaan itse.
+- **Toiminimi.** Tulos verotetaan joka vuosi omistajan tulona, ja ylijäämä sijoitetaan omaan salkkuun.
+- **Osakeyhtiö.** Palkkaa ja osinkoa nostetaan vain nettotarpeen verran. Loppu jää yhtiöön ja sijoitetaan siellä.
+
+Työvuodet ja eläkevuodet ovat erillään. Eläkkeellä molemmista nostetaan sama summa verojen jälkeen: oy:stä osinkona, toiminimeltä salkkua myymällä. Viimeisenä eläkevuonna loput myydään ja yhtiö puretaan (luovutusvoittovero).
+
+Sivun pääluku on oy:n etu: käteen yhteensä, oy miinus toiminimi. Pääkuva näyttää saman eron eri vuosituloksilla, ja nollakohta on kannattavuusraja. Näkyvissä on viisi säädintä (tulos, nettotarve, työvuodet, eläkevuodet, tuotto), ja kaikki muu on lisäasetuksissa.
+
+Tiedostot: `calc.js` on laskenta ilman selainriippuvuuksia, `app.js` piirtää sivun ja kaaviot, `test.js` testaa laskennan.
 
 Luvut ovat suuntaa-antavia, eivät veroneuvontaa. Rajaukset ovat sivun alaosassa.
 

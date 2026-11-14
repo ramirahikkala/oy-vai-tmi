@@ -4,185 +4,188 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Oy vai toiminimi</title>
-  <meta name="description" content="Vertaile osakeyhtiön ja toiminimen verotusta ja sitä, kannattaako ylijäämä jättää yhtiöön vai sijoittaa itse. Verovuosi 2026.">
+  <meta name="description" content="Millä tuloksella osakeyhtiö kannattaa toiminimeä paremmin? Vertailu verovuoden 2026 säännöillä.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&family=Public+Sans:ital,wght@0,400;0,560;0,680;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
-    <p class="eyebrow">Verovuosi 2026 · suuntaa-antava</p>
-    <h1>Oy vai toiminimi</h1>
-    <p class="lede">Sama tulos ja sama käteen jäävä elämä. Laskuri näyttää, paljonko varallisuutta jää, kun ylijäämä jää osakeyhtiöön tai kun sen sijoittaa itse.</p>
+    <h1>Oy vai toiminimi?</h1>
+    <p class="lede">Sama tulos, sama nettotarve. Ylijäämä sijoitetaan: toiminimellä omaan salkkuun, osakeyhtiössä yhtiön sisällä. Verovuosi 2026, suuntaa-antava.</p>
   </header>
 
   <main class="layout">
-    <form id="form" class="panel">
-      <div class="presets" role="group" aria-label="Esimerkit">
-        <button type="button" data-preset="consult">Konsultti</button>
-        <button type="button" data-preset="high">Korkea tulos</button>
-        <button type="button" data-preset="low">Pieni tulos</button>
+    <section class="verdict" id="verdict" aria-live="polite">
+      <p class="verdict-title" id="verdictTitle">&nbsp;</p>
+      <p class="verdict-amount" id="verdictAmount">&nbsp;</p>
+      <p class="verdict-sub" id="verdictSub">&nbsp;</p>
+    </section>
+
+    <section class="card chart-card" id="advCard">
+      <h2>Oy:n etu vuosituloksen mukaan</h2>
+      <p class="hint">Käteen yhteensä, oy miinus toiminimi. Nollaviivan kohdalla kulkee raja.</p>
+      <div class="chart" id="advChart"><div class="plot"></div><div class="cross" hidden></div><div class="tip" hidden></div></div>
+      <p class="hint" id="advNote" hidden><i class="swatch"></i>Harmaalla alueella tulos ei riitä nettotarpeeseen.</p>
+    </section>
+
+    <form class="card controls" id="controls" autocomplete="off">
+      <label class="slider" for="profit">
+        <span class="slider-name">Tulos vuodessa <small>ennen YEL-maksua, palkkaa ja veroja</small></span>
+        <output id="profitOut" for="profit"></output>
+        <input id="profit" type="range" min="20000" max="300000" step="2500" value="80000">
+      </label>
+      <label class="slider" for="netNeed">
+        <span class="slider-name">Nettotarve vuodessa <small>elämiseen, verojen jälkeen</small></span>
+        <output id="netNeedOut" for="netNeed"></output>
+        <input id="netNeed" type="range" min="0" max="120000" step="1000" value="36000">
+      </label>
+      <label class="slider" for="years">
+        <span class="slider-name">Työvuodet <small>yritys tekee tulosta</small></span>
+        <output id="yearsOut" for="years"></output>
+        <input id="years" type="range" min="1" max="40" step="1" value="20">
+      </label>
+      <label class="slider" for="retireYears">
+        <span class="slider-name">Eläkevuodet <small>säästöistä nostetaan, viimeisenä vuonna loput myydään</small></span>
+        <output id="retireYearsOut" for="retireYears"></output>
+        <input id="retireYears" type="range" min="1" max="40" step="1" value="25">
+      </label>
+      <label class="slider" for="rate">
+        <span class="slider-name">Sijoitusten tuotto vuodessa</span>
+        <output id="rateOut" for="rate"></output>
+        <input id="rate" type="range" min="0" max="12" step="0.5" value="7">
+      </label>
+    </form>
+
+    <section class="card" id="whyCard">
+      <h2>Mistä ero syntyy</h2>
+      <div class="table-wrap">
+        <table class="why">
+          <thead>
+            <tr><th>Euroa</th><th><i class="dot tmi"></i>Tmi</th><th><i class="dot oy"></i>Oy</th><th>Ero</th></tr>
+          </thead>
+          <tbody id="whyBody"></tbody>
+        </table>
       </div>
+      <p class="hint" id="whyNote"></p>
+    </section>
 
-      <fieldset>
-        <legend>Yrityksen tulos</legend>
-        <label>Vuositulos ennen YEL-maksua, palkkaa ja veroja
-          <span class="field"><input id="profit" inputmode="decimal" value="80000"><abbr>€</abbr></span>
-        </label>
-        <label>Tuloksen vuosikasvu
-          <span class="field"><input id="profitGrowth" inputmode="decimal" value="0"><abbr>%</abbr></span>
-        </label>
-      </fieldset>
+    <section class="card chart-card" id="yearCard">
+      <h2>Varallisuus verojen jälkeen</h2>
+      <p class="hint">Säästöt verojen jälkeen, jos kaikki myytäisiin sinä vuonna. Nimellisarvo.</p>
+      <p class="legend"><span><i class="dot oy"></i>Oy</span><span><i class="dot tmi"></i>Toiminimi</span></p>
+      <div class="chart" id="yearChart"><div class="plot"></div><div class="cross" hidden></div><div class="tip" hidden></div></div>
+    </section>
 
-      <fieldset>
-        <legend>Mitä tarvitset käteen</legend>
-        <label>Nettotarve vuodessa, verojen jälkeen
-          <span class="field"><input id="netNeed" inputmode="decimal" value="36000"><abbr>€</abbr></span>
-        </label>
-        <label>Nettotarpeen vuosikasvu
-          <span class="field"><input id="needGrowth" inputmode="decimal" value="0"><abbr>%</abbr></span>
-        </label>
-        <p class="hint">Ylimenevä osa sijoitetaan. Jos tulos ei riitä, vajaus otetaan salkusta.</p>
-      </fieldset>
+    <details class="card fold" id="advanced">
+      <summary>Lisäasetukset</summary>
+      <form id="advancedForm" autocomplete="off">
+        <fieldset>
+          <legend>YEL ja verot</legend>
+          <label>YEL-työtulo <span class="field"><input id="yelIncome" inputmode="decimal" value="30000"><abbr>€</abbr></span></label>
+          <label class="check"><input id="yelStarter" type="checkbox"> Aloittavan yrittäjän YEL-alennus 4 ensimmäistä vuotta</label>
+          <label>Kunnallisvero <span class="field"><input id="municipal" inputmode="decimal" value="7,57"><abbr>%</abbr></span></label>
+          <label>Kirkollisvero <span class="field"><input id="church" inputmode="decimal" value="0"><abbr>%</abbr></span></label>
+          <label>Alaikäiset lapset <span class="field"><input id="children" inputmode="numeric" value="0"><abbr>kpl</abbr></span></label>
+          <label class="check"><input id="age65" type="checkbox"> Täyttänyt 65 vuotta ennen vuotta 2026</label>
+        </fieldset>
 
-      <fieldset>
-        <legend>Aika ja sijoitustuotto</legend>
-        <label class="slider">Vuodet
-          <input id="years" type="range" min="1" max="40" value="20">
-          <output id="yearsOut">20</output>
-        </label>
-        <label class="slider">Nimellistuotto vuodessa
-          <input id="rate" type="range" min="0" max="15" step="0.1" value="7">
-          <output id="rateOut">7 %</output>
-        </label>
-        <div class="choice">
-          <label><input type="radio" name="realize" value="end" checked> Tuotto verotetaan vasta lopussa</label>
-          <label><input type="radio" name="realize" value="annual"> Tuotto realisoituu joka vuosi</label>
-        </div>
-        <p class="hint">Tuotto on arvonnousua, ei osinkovirtaa. Sama prosentti yhtiössä ja henkilökohtaisessa salkussa.</p>
-      </fieldset>
+        <fieldset>
+          <legend>Osakeyhtiö</legend>
+          <label>Oy:n lisäkulut vuodessa <small>kirjanpito, tilinpäätös</small> <span class="field"><input id="oyExtra" inputmode="decimal" value="1200"><abbr>€</abbr></span></label>
+          <label class="check"><input id="optimalMix" type="checkbox" checked> Laskuri valitsee palkan ja osingon</label>
+          <label class="slider small" for="dividendShare">
+            <span class="slider-name">Osingon osuus nostosta</span>
+            <output id="dividendShareOut" for="dividendShare"></output>
+            <input id="dividendShare" type="range" min="0" max="100" step="5" value="50" disabled>
+          </label>
+          <label>Oy:n oma pääoma alussa <span class="field"><input id="oyEquity" inputmode="decimal" value="0"><abbr>€</abbr></span></label>
+        </fieldset>
 
-      <fieldset>
-        <legend>Verot ja YEL</legend>
-        <label>Kunnallisvero
-          <span class="field"><input id="municipal" inputmode="decimal" value="7.57"><abbr>%</abbr></span>
-        </label>
-        <label>Kirkollisvero
-          <span class="field"><input id="church" inputmode="decimal" value="0"><abbr>%</abbr></span>
-        </label>
-        <label>YEL-työtulo
-          <span class="field"><input id="yelIncome" inputmode="decimal" value="30000"><abbr>€</abbr></span>
-        </label>
-        <p class="hint" id="yelHint"></p>
-        <label class="check"><input id="yelStarter" type="checkbox"> Aloittavan yrittäjän YEL-alennus neljänä ensimmäisenä vuonna</label>
-        <label>Oy:n ylimääräiset kulut vuodessa
-          <span class="field"><input id="oyExtra" inputmode="decimal" value="1200"><abbr>€</abbr></span>
-        </label>
-        <p class="hint">Kirjanpito ja muut kulut, joita toiminimellä ei ole. YEL on sama molemmissa.</p>
-      </fieldset>
+        <fieldset>
+          <legend>Eläkkeellä</legend>
+          <label>Nosto vuodessa, verojen jälkeen <small>sama molemmille; tyhjä = nettotarve, 0 = ei nostoja ennen viimeistä vuotta</small> <span class="field"><input id="postWithdrawal" inputmode="decimal" value="" placeholder="nettotarve"><abbr>€</abbr></span></label>
+        </fieldset>
 
-      <fieldset>
-        <legend>Lähtövarallisuus</legend>
-        <label>Toiminimen nettovarallisuus
-          <span class="field"><input id="tmiNav" inputmode="decimal" value="0"><abbr>€</abbr></span>
-        </label>
-        <label>Oy:n oma pääoma
-          <span class="field"><input id="oyEquity" inputmode="decimal" value="0"><abbr>€</abbr></span>
-        </label>
-        <label>Henkilökohtainen salkku
-          <span class="field"><input id="personal" inputmode="decimal" value="0"><abbr>€</abbr></span>
-        </label>
-        <p class="hint">Toiminimen nettovarallisuus pysyy tässä luvussa, koska ylijäämä sijoitetaan salkkuun eikä yritykseen. Oy:n oma pääoma kasvaa, kun voittoa jätetään yhtiöön.</p>
-      </fieldset>
+        <fieldset>
+          <legend>Sijoitukset ja kasvu</legend>
+          <div class="segmented" role="radiogroup" aria-label="Tuoton verotus">
+            <label><input type="radio" name="realize" value="end" checked> Tuotto verotetaan vasta myydessä</label>
+            <label><input type="radio" name="realize" value="annual"> Tuotto verotetaan joka vuosi</label>
+          </div>
+          <label>Tuloksen vuosikasvu <span class="field"><input id="profitGrowth" inputmode="decimal" value="0"><abbr>%</abbr></span></label>
+          <label>Nettotarpeen vuosikasvu <span class="field"><input id="needGrowth" inputmode="decimal" value="0"><abbr>%</abbr></span></label>
+          <label>Oma salkku alussa <span class="field"><input id="personal" inputmode="decimal" value="0"><abbr>€</abbr></span></label>
+        </fieldset>
 
-      <details>
-        <summary>Lisäasetukset</summary>
-        <label>Muut ansiotulot vuodessa
-          <span class="field"><input id="externalSalary" inputmode="decimal" value="0"><abbr>€</abbr></span>
-        </label>
-        <label>Muut pääomatulot vuodessa
-          <span class="field"><input id="otherCapital" inputmode="decimal" value="0"><abbr>€</abbr></span>
-        </label>
-        <label>Alaikäiset lapset, työtulovähennystä varten
-          <span class="field"><input id="children" inputmode="numeric" value="0"><abbr>kpl</abbr></span>
-        </label>
-        <label class="check"><input id="age65" type="checkbox"> Täyttänyt 65 vuotta ennen vuotta 2026</label>
-        <label>Toiminimen pääomatulo-osuus
-          <span class="field">
-            <select id="tmiShare">
-              <option value="auto" selected>Halvin vaihtoehto</option>
+        <fieldset>
+          <legend>Toiminimi ja muut tulot</legend>
+          <label>Toiminimen nettovarallisuus <span class="field"><input id="tmiNav" inputmode="decimal" value="0"><abbr>€</abbr></span></label>
+          <label>Toiminimen pääomatulo-osuus
+            <span class="field"><select id="tmiShare">
+              <option value="auto" selected>Edullisin</option>
               <option value="0.2">20 %</option>
               <option value="0.1">10 %</option>
               <option value="0">0 %</option>
-            </select>
-          </span>
-        </label>
-      </details>
-    </form>
+            </select></span>
+          </label>
+          <label>Muut ansiotulot vuodessa <small>brutto, lasketaan mukaan nettotarpeeseen</small> <span class="field"><input id="externalSalary" inputmode="decimal" value="0"><abbr>€</abbr></span></label>
+          <label>Muut pääomatulot vuodessa <span class="field"><input id="otherCapital" inputmode="decimal" value="0"><abbr>€</abbr></span></label>
+        </fieldset>
 
-    <section class="results" aria-live="polite">
-      <div class="switch" role="radiogroup" aria-label="Mitä lukua verrataan">
-        <label><input type="radio" name="metric" value="exit" checked> Kerralla ulos</label>
-        <label><input type="radio" name="metric" value="afterCorp"> Ennen osinkoveroa</label>
-        <label><input type="radio" name="metric" value="patient"> Huojennettu 7,5 %</label>
+        <button type="button" id="reset" class="reset">Palauta oletukset</button>
+      </form>
+    </details>
+
+    <details class="card fold" id="method">
+      <summary>Näin laskettu ja rajaukset</summary>
+      <div class="prose">
+        <h3>Vuosi 1 avattuna</h3>
+        <div id="yearOne" class="year-one"></div>
+
+        <h3>Vertailu</h3>
+        <ul>
+          <li>Molemmilla poluilla on sama tulos, sama YEL-työtulo, sama nettotarve ja sama tuotto. Nettotarve nostetaan joka vuosi elämiseen, ja kaikki sen yli jäävä sijoitetaan.</li>
+          <li><b>Toiminimi:</b> tulos verotetaan joka vuosi omistajan tulona, ja ylijäämä menee omaan salkkuun.</li>
+          <li><b>Osakeyhtiö:</b> yhtiöstä nostetaan palkkaa ja osinkoa vain nettotarpeen verran. Loppu jää yhtiöön 20 %:n yhteisöveron jälkeen ja sijoitetaan siellä.</li>
+          <li><b>Työvuodet ja eläkevuodet</b> ovat erillään. Työvuosina yritys tekee tulosta. Eläkevuosina tulosta ei ole, ja säästöistä nostetaan molemmilla poluilla sama summa verojen jälkeen.</li>
+          <li><b>Käteen yhteensä</b> = työvuosina elämiseen nostettu + eläkkeellä nostettu + viimeisenä eläkevuonna jäljelle jäävä verojen jälkeen. Oy:n etu on näiden erotus.</li>
+        </ul>
+
+        <h3>Työvuosi</h3>
+        <ul>
+          <li>YEL-maksu on 24,40 % työtulosta (alaraja 9 423,09 €, yläraja 214 000 €). Toiminimellä se vähennetään tuloksesta, osakeyhtiössä sen maksaa yhtiö. YEL ei ole mukana verosummissa.</li>
+          <li>Toiminimi: yrittäjävähennys 5 %. Pääomatuloa on enintään 0, 10 tai 20 % nettovarallisuudesta, loppu on ansiotuloa.</li>
+          <li>Osakeyhtiö: palkan sivukulu on 1,91 %. Yhteisövero on 20 % tuloksesta, josta on vähennetty YEL, lisäkulut ja palkka sivukuluineen. Osinkoa ei vähennetä.</li>
+          <li>Osinko: 8 % edellisen vuoden lopun omasta pääomasta on pääomatulo-osinkoa, josta 25 % on veronalaista (150 000 euron ylittävältä osalta 85 %). Sen yli menevästä osingosta 75 % on veronalaista ansiotuloa.</li>
+          <li>Laskuri hakee palkan 48 askeleen ruudukosta ja lisää osinkoa pienimmän määrän, jolla nettotarve täyttyy. Valituksi tulee jako, jonka jälkeen yhtiöön jää eniten.</li>
+          <li>Yhtiö maksaa menonsa ensin vuoden tuloksesta. Sijoituksia myydään vain, jos tulos ei riitä, ja vasta myynti tuo arvonnousun yhteisöveron piiriin.</li>
+          <li>Henkilövero: valtion asteikko 2026, kunnallis- ja kirkollisvero, perusvähennys (enintään 4 265 €), työtulovähennys (18 %, enintään 3 430 €), tulonhankkimisvähennys 750 € palkasta, sairaanhoitomaksu 1,10 % ja päivärahamaksu 1,11 % YEL-työtulosta, yle-vero enintään 160 €. Pääomatulovero on 30 % ja 30 000 euron yli 34 %.</li>
+        </ul>
+
+        <h3>Eläkkeellä</h3>
+        <ul>
+          <li>Joka eläkevuosi nostetaan sama summa verojen jälkeen, oletuksena nettotarve. Oy:stä se nostetaan osinkona, ja jos yhtiön varat loppuvat, omasta salkusta. Toiminimellä summa myydään omasta salkusta, ja myyntivoitosta maksetaan pääomatulovero.</li>
+          <li>Ensimmäinen nosto tehdään heti työuran päättyessä. Sen jälkeen jäljellä olevat varat tuottavat ensin ja nosto tehdään sitten.</li>
+          <li>Viimeisenä eläkevuonna loput myydään. Oy puretaan, ja purku verotetaan luovutusvoittona: yhtiö maksaa 20 % sijoitusten arvonnoususta, ja omistaja maksaa pääomatuloveron jako-osan ja hankintamenon erotuksesta. Hankintamenona käytetään sijoitettua pääomaa tai hankintameno-olettamaa (20 %, vähintään 10 vuoden omistuksen jälkeen 40 %), kumpi on suurempi. Eläkevuodet 1 tarkoittaa, että kaikki myydään heti työuran päättyessä.</li>
+          <li>Eläkevuosien eurot muutetaan työuran päättymishetken rahaksi jakamalla ne sijoitustuotolla. Näin pelkkä odottaminen ei kasvata lukua. Varallisuuskuva näyttää nimellisarvot.</li>
+        </ul>
+
+        <h3>Rajaukset</h3>
+        <ul>
+          <li>Yksi omistaja, ei työntekijöitä. Oy:n omistaja on YEL-vakuutettu.</li>
+          <li>Vuoden 2026 säännöt pätevät kaikkina vuosina. Asteikot ja rajat eivät muutu.</li>
+          <li>Osinko jaetaan saman vuoden tuloksesta. Oikeasti osinko perustuu edellisen tilikauden tilinpäätökseen.</li>
+          <li>Osingon 8 %:n raja lasketaan kirjanpitoarvosta. Sijoitusten arvonnousu ei kasvata sitä.</li>
+          <li>Toiminimen nettovarallisuus ei kasva. Tappioiden 10 vuoden vanhenemista ei seurata.</li>
+          <li>Muista ansiotuloista ei vähennetä työntekijän eläke- ja työttömyysvakuutusmaksuja. Eläkkeellä ei ole työeläkettä eikä muita tuloja. Oikeasti eläke nostaisi oy:n osingon ansiotulo-osan veroa.</li>
+          <li>YEL:n kerryttämää eläkettä ja sosiaaliturvaa ei arvoteta. Se on molemmilla sama.</li>
+          <li>Ei arvonlisäveroa, varauksia eikä yrityksen myyntiä. Tämä ei ole veroneuvontaa.</li>
+        </ul>
       </div>
-      <p class="switch-help" id="metricHelp"></p>
-      <p class="verdict" id="verdict"></p>
-      <div class="cards" id="cards"></div>
-      <ul class="legend">
-        <li><i style="background:#9c3418"></i>Toiminimi</li>
-        <li><i style="background:#0f6a45"></i>Oy, ylijäämä yhtiöön</li>
-        <li><i style="background:#1e4d8c"></i>Oy, ylijäämä itselle</li>
-      </ul>
-      <div class="chart-wrap">
-        <canvas id="chart" width="800" height="360" aria-hidden="true"></canvas>
-        <p class="tooltip" id="tooltip" hidden></p>
-      </div>
-      <div class="table-wrap">
-        <table id="years">
-          <caption>Varallisuus vuosi vuodelta, valitulla tavalla</caption>
-          <thead>
-            <tr>
-              <th>Vuosi</th>
-              <th>Toiminimi</th>
-              <th>Oy yhtiöön</th>
-              <th>Oy itselle</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
+    </details>
   </main>
 
-  <section class="notes">
-    <h2>Mitä laskuri tekee</h2>
-    <div class="note-grid">
-      <article>
-        <h3>Toiminimi</h3>
-        <p>Koko tulos verotetaan joka vuosi. YEL vähennetään, sen jälkeen 5 % yrittäjävähennys. Jäännöksestä pääomatuloa on 0, 10 tai 20 % edellisen vuoden nettovarallisuudesta, loput ansiotuloa. Ylijäämä nettotarpeen jälkeen menee henkilökohtaiseen salkkuun.</p>
-      </article>
-      <article>
-        <h3>Oy, ylijäämä yhtiöön</h3>
-        <p>Yhtiö maksaa yhteisöveron 20 %. Palkka ja osinko valitaan niin, että nettotarve täyttyy ja mahdollisimman paljon jää yhtiöön. Yhtiön varat sijoitetaan. Osinko on huojennettua 8 %:iin asti edellisen vuoden omasta pääomasta.</p>
-      </article>
-      <article>
-        <h3>Oy, ylijäämä itselle</h3>
-        <p>Sama yhtiö, mutta vuoden voitto ja sijoitustuotto nostetaan ulos ja sijoitetaan itse. Pohjaoma pääoma jää yhtiöön. Ilman kerrytettyä pääomaa huojennettua osinkoa ei synny, joten nosto on käytännössä palkkaa.</p>
-      </article>
-    </div>
-    <h2>Rajaukset</h2>
-    <ul>
-      <li>Yksi omistaja, ei työntekijöitä eikä puolisoa. Oy:n omistaja on YEL-vakuutettu eikä TyEL-työsuhteessa. Palkan sivukulu on työnantajan sairausvakuutusmaksu 1,91 %.</li>
-      <li>Sairaanhoitomaksussa YEL-työtulo korvaa oman yhtiön palkan ja toiminimen ansiotulo-osuuden. Päivärahamaksu on 1,11 % YEL-työtulosta, kun työtulo on vähintään 17 255 €.</li>
-      <li>Verovuosi on 2026. Asteikko, vähennykset ja YEL-rajat eivät muutu tulevina vuosina, vaikka tulot kasvaisivat.</li>
-      <li>Kerralla ulos tarkoittaa, että tilinpäätös ehditään tehdä ja koko jäljelle jäävä omaisuus jaetaan sinä vuonna osinkona. Siitä 8 % on huojennettua 150 000 euroon asti. Ylimenevä osa on pääosin ansiotuloa, joten iso kertaosto on kallis.</li>
-      <li>Huojennettu 7,5 % on veroarvio tämänhetkiselle yhtiövarallisuudelle, jos nosto mahtuu 8 %:n ja 150 000 euron rajaan. Se ei ole rahaa samana päivänä, eikä siihen ole laskettu tuottoa odotusvuosilta.</li>
-      <li>Ei arvonlisäveroa, työntekijöiden palkkoja, osakkeiden kauppaa eikä edustus- tai varausjärjestelyjä. Tämä ei ole veroneuvontaa.</li>
-    </ul>
-  </section>
+  <footer class="foot">Verovuosi 2026 · suuntaa-antava, ei veroneuvontaa</footer>
   <script type="module" src="app.js"></script>
 </body>
 </html>

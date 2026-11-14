@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  TAX,
+  advantageCurve,
   capitalIncomeTax,
   chooseWithdrawal,
+  retire,
   liquidate,
   settleCompany,
   simulate,
@@ -47,164 +48,252 @@ test("YEL-maksu", () => {
   assert.ok(Math.abs(yelPayment(30_000, { starter: true }) - 30_000 * 0.244 * 0.78) < 0.02);
 });
 
+const near = (actual, expected, tolerance = 1) =>
+  assert.ok(Math.abs(actual - expected) < tolerance, `${actual} vs ${expected}`);
+
+const BASE = {
+  profit: 80_000,
+  netNeed: 36_000,
+  years: 20,
+  rate: 0.07,
+  municipalRate: 0.0757,
+  yelIncome: 30_000,
+  oyExtra: 1_200,
+};
+
 test("toiminimen vero, käsin laskettu esimerkki", () => {
-  const yel = 7_320;
-  const distributable = (60_000 - yel) * 0.95;
+  // Tulos 80 000, YEL 7 320, yrittäjävähennys 5 % → ansiotulo 69 046.
+  const earned = (80_000 - 7_320) * 0.95;
+  const tax = taxPerson({ tmiEarned: earned, yel: 30_000, yelInsured: true, municipalRate: 0.0757 });
+  const daily = 30_000 * 0.0111;
+  const taxable = earned - daily; // päivärahamaksu vähennetään, perusvähennys on 0
+  const state = 11_053.55 + (taxable - 52_100) * 0.375 - 3_119;
+  const municipal = taxable * 0.0757;
+  const medical = (30_000 - daily) * 0.011;
+  near(tax.daily, 333, 0.01);
+  near(tax.state, state, 0.01);
+  near(tax.municipal, municipal, 0.01);
+  near(tax.medical, medical, 0.01);
+  near(tax.total, state + municipal + medical + daily + 160, 0.01);
+  near(tax.total, 20_185.34, 0.01);
+});
+
+test("toiminimen pääomatulo-osuus verotetaan pääomatulona", () => {
+  const distributable = (60_000 - 7_320) * 0.95;
   const capital = Math.min(distributable, 40_000 * 0.2);
-  const earned = distributable - capital;
-  const tax = taxPerson({
-    tmiEarned: earned,
-    extraCapital: capital,
-    yel: 30_000,
-    yelInsured: true,
-    municipalRate: 0.0757,
-    churchRate: 0,
-  });
-  assert.ok(Math.abs(earned - 42_046) < 0.01);
+  const tax = taxPerson({ tmiEarned: distributable - capital, extraCapital: capital, yel: 30_000, yelInsured: true });
   assert.equal(capital, 8_000);
-  assert.ok(Math.abs(tax.capitalTax - 2_400) < 0.01);
-  assert.ok(Math.abs(tax.total - 10_827.3) < 1, tax.total);
+  near(tax.capitalTax, 2_400, 0.01);
+});
+
+test("yle-vero lasketaan tuloista, ei YEL-työtulosta", () => {
+  assert.equal(taxPerson({ tmiEarned: 5_000, yel: 30_000, yelInsured: true }).yle, 0);
+  assert.equal(taxPerson({ tmiEarned: 60_000, yel: 30_000, yelInsured: true }).yle, 160);
 });
 
 test("yhteisövero jää yhtiöön ja palkka ei vie yhtiötä miinukselle", () => {
-  const plain = settleCompany(
-    { book: 0, unrealized: 0, lossCarry: 0 },
-    { profit: 10_000, salary: 0, dividend: 0, rate: 0 },
-  );
+  const empty = { book: 0, unrealized: 0, lossCarry: 0 };
+  const plain = settleCompany(empty, { profit: 10_000 });
   assert.equal(plain.corpTax, 2_000);
   assert.equal(plain.company.book, 8_000);
 
-  const capped = settleCompany(
-    { book: 0, unrealized: 0, lossCarry: 0 },
-    { profit: 10_000, salary: 100_000, dividend: 0, rate: 0 },
-  );
+  const capped = settleCompany(empty, { profit: 10_000, salary: 100_000 });
   assert.ok(capped.salary < 10_000);
   assert.ok(capped.company.book >= -0.01);
   assert.equal(capped.corpTax, 0);
 });
 
 test("realisoimaton tuotto ei kasvata yhteisöveroa", () => {
-  const deferred = settleCompany(
-    { book: 10_000, unrealized: 0, lossCarry: 0 },
-    { profit: 0, rate: 0.1, recognizeAll: false },
-  );
+  const company = { book: 10_000, unrealized: 0, lossCarry: 0 };
+  const deferred = settleCompany(company, { rate: 0.1 });
   assert.equal(deferred.corpTax, 0);
   assert.equal(deferred.company.book, 10_000);
   assert.equal(deferred.company.unrealized, 1_000);
 
-  const realized = settleCompany(
-    { book: 10_000, unrealized: 0, lossCarry: 0 },
-    { profit: 0, rate: 0.1, recognizeAll: true },
-  );
+  const realized = settleCompany(company, { rate: 0.1, recognizeAll: true });
   assert.equal(realized.corpTax, 200);
-  assert.ok(Math.abs(realized.company.book - 10_800) < 0.02);
+  near(realized.company.book, 10_800, 0.02);
   assert.equal(realized.company.unrealized, 0);
 });
 
-test("pitkä simulointi: yhtiöön jätetty varallisuus kasvaa, purku ei", () => {
-  const result = simulate({
-    profit: 80_000,
-    netNeed: 36_000,
-    years: 15,
-    rate: 0.07,
-    realize: "end",
-    municipalRate: 0.0757,
-    churchRate: 0,
-    yelIncome: 30_000,
-    oyExtra: 1_200,
-    tmiNav: 0,
-    oyEquity: 0,
-    personal: 0,
-    tmiShare: "auto",
-  });
-  const { tmi, hold, drain } = result.summary;
-  assert.ok(hold.company > drain.company);
-  assert.ok(hold.gross > tmi.gross);
-  assert.ok(hold.exit > 0 && tmi.exit > 0 && drain.exit > 0);
-  assert.ok(hold.shortfall === 0);
-  assert.ok(tmi.shortfall === 0);
-  assert.ok(result.rows.length === 15);
+test("menot maksetaan vuoden tuloksesta ilman sijoitusten myyntiä", () => {
+  const company = { book: 500_000, unrealized: 500_000, lossCarry: 0 };
+  const year = settleCompany(company, { profit: 80_000, yel: 7_320, extra: 1_200, salary: 45_000 });
+  assert.equal(year.recognized, 0);
+  near(year.corpTax, 0.2 * (80_000 - 7_320 - 1_200 - 45_000 * 1.0191), 0.01);
+  assert.equal(year.company.unrealized, 500_000);
+  near(year.company.book, 500_000 + 80_000 - 7_320 - 1_200 - 45_000 * 1.0191 - year.corpTax, 0.02);
+});
+
+test("myynti tulouttaa arvonnousua vain myydyltä osalta", () => {
+  const company = { book: 100_000, unrealized: 100_000, lossCarry: 0 };
+  const year = settleCompany(company, { dividend: 50_000 });
+  assert.equal(year.dividendPaid, 50_000);
+  // Puolet myydystä on arvonnousua. Verokin maksetaan myymällä, joten hieman yli 25 000.
+  assert.ok(year.recognized > 25_000 && year.recognized < 29_000, year.recognized);
+  near(year.corpTax, year.recognized * 0.2, 0.05);
+  near(year.company.book + year.company.unrealized, 200_000 - 50_000 - year.corpTax, 0.05);
+});
+
+test("yhtiön purku verotetaan luovutusvoittona", () => {
+  const company = { book: 1_000_000, unrealized: 0, lossCarry: 0 };
+  const none = { basis: 0, market: 0 };
+  const input = { municipalRate: 0.0757 };
+
+  // Yli 10 v: olettama 40 % → voitto 600 000 → 9 000 + 570 000 × 34 % + yle 160.
+  const long = liquidate(company, none, input, 20);
+  near(long.personalTax, 9_000 + 570_000 * 0.34 + 160, 0.01);
+  near(long.net, 1_000_000 - long.personalTax, 0.01);
+
+  // Alle 10 v: olettama 20 % → voitto 800 000.
+  const short = liquidate(company, none, input, 5);
+  near(short.personalTax, 9_000 + 770_000 * 0.34 + 160, 0.01);
+
+  // Sijoitettu pääoma on hankintameno, jos se on olettamaa suurempi.
+  const paidIn = liquidate(company, none, { ...input, oyEquity: 900_000 }, 20);
+  assert.equal(paidIn.shareGain, 100_000);
+
+  // Arvonnousu tuloutuu ensin yhtiölle.
+  const gains = liquidate({ book: 100_000, unrealized: 50_000, lossCarry: 0 }, { basis: 10_000, market: 25_000 }, input, 3);
+  assert.equal(gains.corpTax, 10_000);
+  assert.equal(gains.equity, 140_000);
+  assert.ok(gains.net > 0 && gains.net < 165_000);
+});
+
+test("eläkevaihe", () => {
+  const company = { book: 100_000, unrealized: 0, lossCarry: 0 };
+  const none = { basis: 0, market: 0 };
+  const input = { municipalRate: 0.0757, rate: 0, realize: "end" };
+
+  // Yksi eläkevuosi = kaikki myydään heti.
+  const now = retire(company, none, input, { years: 1, target: 36_000, careerYears: 20 });
+  near(now.usable, liquidate(company, none, input, 20).net);
+  assert.equal(now.withdrawn, 0);
+
+  // Ilman tuottoa nostot täyttävät tavoitteen, ja verot + käteen = yhtiön varat.
+  const drip = retire(company, none, input, { years: 5, target: 7_000, careerYears: 20 });
+  assert.equal(drip.shortYears, 0);
+  near(drip.withdrawn, 4 * 7_000, 5);
+  near(drip.usable + drip.tax, 100_000, 1);
+  for (const p of drip.path.slice(0, -1)) near(p.net, 7_000, 2);
+
+  // Toiminimi: nostot salkusta.
+  const pf = { basis: 50_000, market: 100_000 };
+  const tmi = retire(null, pf, input, { years: 5, target: 7_000 });
+  near(tmi.withdrawn, 4 * 7_000, 5);
+  near(tmi.usable + tmi.tax, 100_000, 1);
+  assert.equal(pf.market, 100_000, "alkuperäinen salkku ei muutu");
+
+  // Rahat loppuvat kesken.
+  const thin = retire(null, { basis: 10_000, market: 10_000 }, input, { years: 5, target: 7_000 });
+  assert.ok(thin.shortYears >= 2, thin.shortYears);
+
+  // Tuotto diskontataan: pelkkä odottaminen ei kasvata lukua.
+  const grown = retire(null, { basis: 100_000, market: 100_000 }, { ...input, rate: 0.07 }, { years: 10, target: 0 });
+  assert.ok(grown.usable < 100_000 && grown.usable > 85_000, grown.usable);
+});
+
+test("osingon osuus pakottaa palkan ja osingon jaon", () => {
+  const input = { municipalRate: 0.0757, oyExtra: 0, otherCapital: 0, externalSalary: 0, yelIncome: 0 };
+  const company = { book: 200_000, unrealized: 0, lossCarry: 0 };
+  const opts = { profit: 50_000, yel: 0, need: 10_000, rate: 0, recognizeAll: false };
+  const dividend = chooseWithdrawal(company, { ...input, dividendShare: 1 }, opts);
+  const salary = chooseWithdrawal(company, { ...input, dividendShare: 0 }, opts);
+  assert.ok(dividend.net >= 10_000 - 1);
+  assert.ok(dividend.salary < 1, dividend.salary);
+  assert.ok(dividend.dividend > 10_000);
+  assert.ok(salary.net >= 10_000 - 1);
+  assert.ok(salary.dividend < 1, salary.dividend);
+  assert.ok(salary.salary > 5_000);
+});
+
+test("osingon jako 8 %:n rajalla", () => {
+  const soft = taxPerson({ dividend: 10_000, nav: 200_000 });
+  near(soft.dividendCapitalGross, 10_000, 0.01);
+  near(soft.dividendTaxFree, 7_500, 0.01);
+  near(soft.dividendTaxableCapital, 2_500, 0.01);
+
+  const over = taxPerson({ dividend: 10_000, nav: 50_000 });
+  near(over.dividendCapitalGross, 4_000, 0.01);
+  near(over.dividendEarnedGross, 6_000, 0.01);
+  near(over.dividendTaxFree, 4_500, 0.01);
+  near(over.dividendTaxableCapital, 1_000, 0.01);
+  near(over.dividendTaxableEarned, 4_500, 0.01);
+});
+
+test("ensimmäinen vuosi oletuksilla", () => {
+  const row = simulate({ ...BASE, years: 1, rate: 0 }).rows[0];
+  const tmi = row.tmi.detail;
+  near(tmi.deduction, (80_000 - 7_320) * 0.05, 0.02);
+  near(tmi.taxes.total, 20_185.34, 0.01);
+  near(tmi.cash, 80_000 - 7_320 - 20_185.34, 0.01);
+  assert.equal(tmi.capital, 0);
+
+  const oy = row.oy.detail;
+  assert.ok(oy.net >= 36_000 - 1 && oy.net < 36_050, oy.net);
+  near(oy.net, oy.salary + oy.dividend - oy.taxes.total, 0.02);
+  near(oy.corp, 0.2 * (80_000 - 7_320 - 1_200 - oy.salary * 1.0191), 0.02);
+  near(row.oy.company, 80_000 - 7_320 - 1_200 - oy.salary * 1.0191 - oy.corp - oy.dividend, 0.05);
+});
+
+test("pitkä simulointi: sama elämä, eri verot", () => {
+  const result = simulate({ ...BASE, years: 15, retireYears: 12 });
+  const { tmi, oy, advantage } = result.summary;
+  assert.equal(result.rows.length, 15);
+  assert.equal(tmi.retirePath.length, 12);
+  assert.equal(tmi.retireShortYears, 0);
+  assert.equal(oy.retireShortYears, 0);
+  near(tmi.retireNet, oy.retireNet, 5);
+  assert.equal(tmi.shortfall, 0);
+  assert.equal(oy.shortfall, 0);
+  near(tmi.cumLiving, 15 * 36_000);
+  near(oy.cumLiving, 15 * 36_000);
+  assert.equal(tmi.cumCorp, 0);
+  assert.ok(oy.cumCorp > 0);
+  assert.ok(oy.cumTax + oy.cumCorp < tmi.cumTax - 1_000);
+  assert.ok(oy.company > tmi.portfolio);
+  near(advantage, oy.total - tmi.total, 0.02);
+  near(oy.total, oy.cumLiving + oy.retireNet + oy.leftover, 0.05);
   for (const row of result.rows) {
-    for (const key of ["tmi", "hold", "drain"]) {
-      assert.ok(Number.isFinite(row[key].exit));
-      assert.ok(Number.isFinite(row[key].gross));
-    }
+    for (const key of ["tmi", "oy"]) assert.ok(Number.isFinite(row[key].wealth) && row[key].wealth >= 0);
   }
 });
 
+test("muut tulot lasketaan käteen eikä vain veroihin", () => {
+  const plain = simulate({ ...BASE, years: 1 }).rows[0];
+  const extra = simulate({ ...BASE, years: 1, externalSalary: 50_000 }).rows[0];
+  near(extra.tmi.detail.cash, 80_000 - 7_320 + 50_000 - extra.tmi.detail.taxes.total, 0.02);
+  assert.ok(extra.tmi.detail.cash > plain.tmi.detail.cash + 20_000);
+  assert.equal(extra.oy.detail.net >= 36_000 - 1, true);
+  // Muu palkka kattaa nettotarpeen, joten yhtiöstä ei nosteta mitään.
+  assert.equal(extra.oy.detail.salary, 0);
+  assert.equal(extra.oy.detail.dividend, 0);
+  assert.ok(extra.oy.company > plain.oy.company);
+});
+
 test("matalalla tulolla pääomatulo-osuudeksi valikoituu 0", () => {
-  const result = simulate({
-    profit: 22_000,
-    netNeed: 0,
-    years: 1,
-    rate: 0,
-    municipalRate: 0.0757,
-    yelIncome: 15_000,
-    tmiNav: 40_000,
-    oyEquity: 0,
-    oyExtra: 0,
-    tmiShare: "auto",
-  });
+  const result = simulate({ profit: 22_000, netNeed: 0, years: 1, rate: 0, yelIncome: 15_000, tmiNav: 40_000, tmiShare: "auto" });
   assert.equal(result.rows[0].tmi.detail.share, 0);
 });
 
-test("purku jättää pohjan ja hold säästää", () => {
-  const input = {
-    externalSalary: 0,
-    otherCapital: 0,
-    municipalRate: 0.0757,
-    churchRate: 0,
-    children: 0,
-    age65: false,
-    oyExtra: 0,
-  };
-  const company = { book: 20_000, unrealized: 0, lossCarry: 0 };
-  const hold = chooseWithdrawal(company, input, {
-    profit: 50_000,
-    yel: 0,
-    need: 10_000,
-    rate: 0,
-    recognizeAll: false,
-    mode: "hold",
-    floor: 20_000,
-  });
-  const drain = chooseWithdrawal(company, input, {
-    profit: 50_000,
-    yel: 0,
-    need: 10_000,
-    rate: 0,
-    recognizeAll: true,
-    mode: "drain",
-    floor: 20_000,
-  });
-  assert.ok(hold.net >= 10_000 - 1);
-  assert.ok(hold.settled.company.book > drain.settled.company.book);
-  assert.ok(drain.net > hold.net);
+test("oy:n etu kasvaa tuloksen mukana ja raja löytyy", () => {
+  const curve = advantageCurve(BASE, [55_000, 80_000, 150_000]);
+  // Eläkevuodet vaikuttavat: kertamyynti verottaa toiminimen salkun kerralla.
+  const lump = simulate({ ...BASE, retireYears: 1 }).summary.advantage;
+  const slow = simulate({ ...BASE, retireYears: 25 }).summary.advantage;
+  assert.ok(slow > lump, `${slow} vs ${lump}`);
+  // 15 työvuoden säästöt eivät riitä 25 eläkevuoteen, toiminimellä vielä vähemmän.
+  const long = simulate({ ...BASE, years: 15, retireYears: 25 }).summary;
+  assert.ok(long.tmi.retireShortYears > long.oy.retireShortYears, `${long.tmi.retireShortYears} vs ${long.oy.retireShortYears}`);
+  assert.equal(curve.length, 3);
+  assert.ok(curve[0].advantage < 0, curve[0].advantage);
+  assert.ok(curve[1].advantage > 0, curve[1].advantage);
+  assert.ok(curve[2].advantage > curve[1].advantage);
+  assert.equal(advantageCurve(BASE, [30_000])[0].shortfall, true);
 });
 
-test("lopetusvero syö osan yhtiön varoista mutta ei vie niitä miinukselle", () => {
-  const exit = liquidate(
-    { book: 100_000, unrealized: 50_000, lossCarry: 0 },
-    { basis: 10_000, market: 25_000 },
-    { municipalRate: 0.0757, churchRate: 0, children: 0, age65: false },
-  );
-  assert.ok(exit.net > 0);
-  assert.ok(exit.net < exit.gross);
-  assert.ok(exit.corpTax > 0);
-});
-
-test("simulointi pysyy sekunnissa", () => {
+test("simulointi pysyy nopeana", () => {
   const started = Date.now();
-  simulate({
-    profit: 120_000,
-    netNeed: 48_000,
-    years: 30,
-    rate: 0.07,
-    municipalRate: 0.0757,
-    yelIncome: 40_000,
-    oyExtra: 1_500,
-    oyEquity: 25_000,
-    tmiNav: 25_000,
-  });
+  simulate({ profit: 120_000, netNeed: 48_000, years: 30, rate: 0.07, yelIncome: 40_000, oyExtra: 1_500, oyEquity: 25_000, tmiNav: 25_000 });
   assert.ok(Date.now() - started < 1500);
 });
