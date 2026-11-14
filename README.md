@@ -7,7 +7,7 @@ Kaksi polkua samasta tuloksesta ja samasta nettotarpeesta:
 - **Toiminimi.** Tulos verotetaan joka vuosi omistajan tulona, ja ylijäämä sijoitetaan omaan salkkuun.
 - **Osakeyhtiö.** Palkkaa ja osinkoa nostetaan vain nettotarpeen verran. Loppu jää yhtiöön ja sijoitetaan siellä.
 
-Työvuodet ja eläkevuodet ovat erillään. Eläkkeellä molemmista nostetaan sama summa verojen jälkeen: oy:stä osinkona, toiminimeltä salkkua myymällä. Viimeisenä eläkevuonna loput myydään ja yhtiö puretaan (luovutusvoittovero).
+Työvuodet ja eläkevuodet ovat erillään. Eläkkeellä molemmista nostetaan sama summa verojen jälkeen: oy:stä osinkona, toiminimeltä salkkua myymällä. Viimeisenä eläkevuonna nostetaan vielä tavallinen summa, ja sen jälkeen loput myydään ja yhtiö puretaan (luovutusvoittovero).
 
 Sivun pääluku on oy:n etu: käteen yhteensä, oy miinus toiminimi. Kaavio näyttää molempien varallisuuden verojen jälkeen työ- ja eläkevuosina, ja tuomion alla kerrotaan tulos, jolla oy alkaa kannattaa. Näkyvissä on viisi säädintä (tulos, nettotarve, työvuodet, eläkevuodet, tuotto), ja kaikki muu on lisäasetuksissa.
 

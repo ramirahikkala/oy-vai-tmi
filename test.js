@@ -173,14 +173,16 @@ test("eläkevaihe", () => {
   // Ilman tuottoa nostot täyttävät tavoitteen, ja verot + käteen = yhtiön varat.
   const drip = retire(company, none, input, { years: 5, target: 7_000, careerYears: 20 });
   assert.equal(drip.shortYears, 0);
-  near(drip.withdrawn, 4 * 7_000, 5);
+  near(drip.withdrawn, 5 * 7_000, 5);
   near(drip.usable + drip.tax, 100_000, 1);
   for (const p of drip.path.slice(0, -1)) near(p.net, 7_000, 2);
+  // Viimeisenä vuonna nostetaan tavallisesti ja vasta loput myydään.
+  near(drip.path[4].net, 7_000 + drip.path[4].wealth, 2);
 
   // Toiminimi: nostot salkusta.
   const pf = { basis: 50_000, market: 100_000 };
   const tmi = retire(null, pf, input, { years: 5, target: 7_000 });
-  near(tmi.withdrawn, 4 * 7_000, 5);
+  near(tmi.withdrawn, 5 * 7_000, 5);
   near(tmi.usable + tmi.tax, 100_000, 1);
   assert.equal(pf.market, 100_000, "alkuperäinen salkku ei muutu");
 

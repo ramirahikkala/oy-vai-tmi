@@ -273,7 +273,7 @@ function renderWhy(result) {
   const row = (label, a, b, { total = false, note = "" } = {}) =>
     `<tr${total ? ' class="total"' : ""}><td>${label}${note ? `<small>${note}</small>` : ""}</td><td>${fmt.format(Math.round(a))}</td><td>${fmt.format(Math.round(b))}</td><td class="diff">${signed(b - a).replace(" €", "")}</td></tr>`;
   const rows = [row("Työvuosina käteen", tmi.cumLiving, oy.cumLiving, { note: `${years} v` })];
-  if (retireYears > 1) rows.push(row("Eläkkeellä nostettu", tmi.retireNet, oy.retireNet, { note: `${retireYears - 1} v, uran lopun rahana` }));
+  if (retireYears > 1) rows.push(row("Eläkkeellä nostettu", tmi.retireNet, oy.retireNet, { note: `${retireYears} v, uran lopun rahana` }));
   rows.push(
     row("Lopuksi myyty", tmi.leftover, oy.leftover, { note: retireYears > 1 ? `vuonna ${years + retireYears}, uran lopun rahana` : "heti uran päätyttyä" }),
     row("Käteen yhteensä", tmi.total, oy.total, { total: true }),

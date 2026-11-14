@@ -575,27 +575,8 @@ export function retire(company, portfolio, input, { years = 1, target = 0, caree
     const grow = y > 0;
     const pv = (value) => discount(value, rate, y);
 
-    if (y === total - 1) {
-      let tax = 0;
-      if (grow) {
-        const settled = settleCompany(co, { rate, recognizeAll: realize });
-        co = settled.company;
-        tax += settled.corpTax + growPortfolio(pf, rate, realize, 0);
-      }
-      const exit = liquidate(co, pf, input, careerYears + y);
-      leftover = pv(exit.net);
-      taxes += pv(tax + exit.corpTax + exit.personalTax);
-      path.push({
-        year: y + 1,
-        net: round2(exit.net),
-        tax: round2(tax + exit.corpTax + exit.personalTax),
-        wealth: round2(exit.net),
-        final: true,
-      });
-      break;
-    }
-
-    const want = Math.max(0, wantOf(y));
+    // Yksi eläkevuosi tarkoittaa, että kaikki myydään heti uran päätyttyä.
+    const want = total === 1 ? 0 : Math.max(0, wantOf(y));
     let net = 0;
     let tax = 0;
     let capital = 0;
@@ -639,13 +620,23 @@ export function retire(company, portfolio, input, { years = 1, target = 0, caree
     if (net < want - 1) shortYears += 1;
     withdrawn += pv(net);
     taxes += pv(tax);
-    path.push({
-      year: y + 1,
-      net: round2(net),
-      tax: round2(tax),
-      wealth: liquidate(co, pf, input, careerYears + y).net,
-      final: false,
-    });
+    const exit = liquidate(co, pf, input, careerYears + y);
+    if (y === total - 1) {
+      // Viimeisenä vuonna nostetaan tavallinen nettotarve ja vasta loput myydään,
+      // jotta kaavio ei hyppää vuoden tuoton verran.
+      const exitTax = exit.corpTax + exit.personalTax;
+      leftover = pv(exit.net);
+      taxes += pv(exitTax);
+      path.push({
+        year: y + 1,
+        net: round2(net + exit.net),
+        tax: round2(tax + exitTax),
+        wealth: round2(exit.net),
+        final: true,
+      });
+      break;
+    }
+    path.push({ year: y + 1, net: round2(net), tax: round2(tax), wealth: exit.net, final: false });
   }
 
   return {
