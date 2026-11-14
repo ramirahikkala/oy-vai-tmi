@@ -585,7 +585,13 @@ export function retire(company, portfolio, input, { years = 1, target = 0, caree
       const exit = liquidate(co, pf, input, careerYears + y);
       leftover = pv(exit.net);
       taxes += pv(tax + exit.corpTax + exit.personalTax);
-      path.push({ year: y + 1, net: round2(exit.net), wealth: round2(exit.net), final: true });
+      path.push({
+        year: y + 1,
+        net: round2(exit.net),
+        tax: round2(tax + exit.corpTax + exit.personalTax),
+        wealth: round2(exit.net),
+        final: true,
+      });
       break;
     }
 
@@ -633,7 +639,13 @@ export function retire(company, portfolio, input, { years = 1, target = 0, caree
     if (net < want - 1) shortYears += 1;
     withdrawn += pv(net);
     taxes += pv(tax);
-    path.push({ year: y + 1, net: round2(net), wealth: liquidate(co, pf, input, careerYears + y).net, final: false });
+    path.push({
+      year: y + 1,
+      net: round2(net),
+      tax: round2(tax),
+      wealth: liquidate(co, pf, input, careerYears + y).net,
+      final: false,
+    });
   }
 
   return {
@@ -781,9 +793,17 @@ export function simulate(raw) {
       profit: round2(profit),
       need: round2(need),
       yel,
-      tmi: { wealth: tmiExit.net, portfolio: round2(tmi.portfolio.market), detail: tmiDetail },
+      tmi: {
+        wealth: tmiExit.net,
+        spent: round2(tmi.cumLiving),
+        tax: round2(tmi.cumTax),
+        portfolio: round2(tmi.portfolio.market),
+        detail: tmiDetail,
+      },
       oy: {
         wealth: oyExit.net,
+        spent: round2(oy.cumLiving),
+        tax: round2(oy.cumTax + oy.cumCorp),
         company: round2(companyMarket(oy.company)),
         portfolio: round2(oy.portfolio.market),
         detail: oyDetail,

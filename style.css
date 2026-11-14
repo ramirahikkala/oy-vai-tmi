@@ -406,6 +406,7 @@ fieldset .slider { grid-column: 1 / -1; display: grid; }
     grid-template-areas:
       "verdict year"
       "controls year"
+      "controls flow"
       "controls why"
       "advanced advanced"
       "method method";
@@ -425,6 +426,7 @@ fieldset .slider { grid-column: 1 / -1; display: grid; }
 
   .verdict-amount { margin-top: 4px; }
   .controls { grid-area: controls; position: sticky; top: 16px; }
+  #flowCard { grid-area: flow; }
   #whyCard { grid-area: why; }
   #yearCard { grid-area: year; }
   #advanced { grid-area: advanced; }

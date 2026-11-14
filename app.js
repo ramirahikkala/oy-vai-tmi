@@ -8,6 +8,11 @@ const signed = (n) => {
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${fmt.format(Math.abs(r))} €`;
 };
 const kilo = (n) => fmt.format(Math.round(n / 1000));
+const fmtMillion = new Intl.NumberFormat("fi-FI", { maximumFractionDigits: 2 });
+const million = (n) => fmtMillion.format(n / 1_000_000);
+/** Lyhyt summa yksikön kanssa: alle miljoona t€:na, siitä ylöspäin milj. €:na. */
+const fmtMillion2 = new Intl.NumberFormat("fi-FI", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const short = (n) => (Math.abs(Math.round(n / 1000)) >= 1000 ? `${fmtMillion2.format(n / 1_000_000)} milj. €` : `${kilo(n)} t€`);
 const roundTo = (n, step) => Math.round(n / step) * step;
 
 const CURVE_MIN = 20_000;
@@ -111,49 +116,59 @@ function findCrossings(curve) {
   return out;
 }
 
-// ---------- Kaavio: varallisuus vuosittain ----------
+// ---------- Viivakaaviot vuosittain ----------
 
-let yearView = null;
+const views = new WeakMap();
 
-function yearSeries(result) {
-  const W = result.input.years;
-  const points = result.rows.map((r) => ({ t: r.year, label: `Työvuosi ${r.year}`, oy: r.oy.wealth, tmi: r.tmi.wealth }));
-  const oyPath = result.summary.oy.retirePath;
-  const tmiPath = result.summary.tmi.retirePath;
-  for (let i = 0; i < oyPath.length; i += 1) {
-    const last = i === oyPath.length - 1;
-    points.push({
-      t: W + i + 1,
-      label: last ? `Eläkevuosi ${i + 1}, loput myydään` : `Eläkevuosi ${i + 1}`,
-      oy: oyPath[i].wealth,
-      tmi: tmiPath[i].wealth,
-    });
+/**
+ * Vuosisarja työ- ja eläkevuosille. pick(polku, rivi) antaa työvuoden arvon,
+ * retire(polku, kertymä, eläkerivi) eläkevuoden arvon.
+ */
+function yearSeries(result, work, retire = work) {
+  const career = result.input.years;
+  const points = result.rows.map((r) => ({
+    t: r.year,
+    label: `Työvuosi ${r.year}`,
+    oy: work("oy", r),
+    tmi: work("tmi", r),
+  }));
+  const paths = { oy: result.summary.oy.retirePath, tmi: result.summary.tmi.retirePath };
+  const carry = { oy: points.length ? points[points.length - 1].oy : 0, tmi: points.length ? points[points.length - 1].tmi : 0 };
+  for (let i = 0; i < paths.oy.length; i += 1) {
+    const last = i === paths.oy.length - 1;
+    const point = { t: career + i + 1, label: last ? `Eläkevuosi ${i + 1}, loput myydään` : `Eläkevuosi ${i + 1}` };
+    for (const key of ["oy", "tmi"]) {
+      point[key] = retire(key, carry[key], paths[key][i]);
+      carry[key] = point[key];
+    }
+    points.push(point);
   }
   return points;
 }
 
-function renderYears(result) {
-  const el = $("#yearChart");
-  const points = yearSeries(result);
-  const career = result.input.years;
-  const W = Math.max(280, el.clientWidth);
-  const H = W < 520 ? 220 : 320;
-  const m = { l: 44, r: 62, t: 22, b: 34 };
+function lineChart(el, points, { career, top, label, compact = false }) {
+  const W = Math.max(240, el.clientWidth);
+  const H = compact ? (W < 520 ? 190 : 230) : W < 520 ? 220 : 320;
+  const m = { l: 44, r: 84, t: 22, b: 34 };
   const n = points.length;
   const x = n === 1 ? () => (m.l + W - m.r) / 2 : linear(1, n, m.l, W - m.r);
-  const top = Math.max(1000, ...points.map((p) => Math.max(p.oy, p.tmi))) * 1.08;
-  const y = linear(0, top, H - m.b, m.t);
-  const yTicks = niceTicks(0, top, 4);
+  const ceiling = (top ?? Math.max(1000, ...points.map((p) => Math.max(p.oy, p.tmi)))) * 1.08;
+  const y = linear(0, ceiling, H - m.b, m.t);
+  const yTicks = niceTicks(0, ceiling, 4);
+  // Akseli vaihtuu miljooniin, kun ylin merkintä menee yli tuhannen t€.
+  const inMillions = yTicks[yTicks.length - 1] >= 1_000_000;
   const xTicks = niceTicks(1, Math.max(2, n), W < 520 ? 4 : 8).filter((t) => t >= 1 && t <= n);
 
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Varallisuus verojen jälkeen työ- ja eläkevuosina, oy ja toiminimi">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">`;
   for (const t of yTicks) {
     svg += `<line class="${t === 0 ? "zero" : "grid"}" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`;
-    svg += `<text x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${kilo(t)}</text>`;
+    svg += `<text x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${inMillions ? million(t) : kilo(t)}</text>`;
   }
   for (const t of xTicks) svg += `<text x="${x(t)}" y="${H - m.b + 15}" text-anchor="middle">${t}</text>`;
   svg += `<text x="${W - m.r}" y="${H - 3}" text-anchor="end">Vuosi</text>`;
-  svg += `<text x="${m.l - 6}" y="${H - 3}" text-anchor="end">t€</text>`;
+  svg += inMillions
+    ? `<text x="0" y="${H - 3}">milj. €</text>`
+    : `<text x="${m.l - 6}" y="${H - 3}" text-anchor="end">t€</text>`;
   if (n > career) {
     const bx = n === 1 ? x(1) : x(career + 0.5);
     svg += `<line class="guide" x1="${bx}" x2="${bx}" y1="${m.t - 8}" y2="${H - m.b}"/>`;
@@ -177,25 +192,41 @@ function renderYears(result) {
     ends[0].ey = mid - 7;
     ends[1].ey = mid + 7;
   }
-  for (const e of ends) svg += `<text class="strong" x="${e.ex + 9}" y="${e.ey + 4}">${kilo(e.value)} t€</text>`;
+  for (const e of ends) svg += `<text class="strong" x="${e.ex + 9}" y="${e.ey + 4}">${short(e.value)}</text>`;
   svg += "</svg>";
   el.querySelector(".plot").innerHTML = svg;
-  yearView = { points, x, m, W, H };
+  views.set(el, { points, x, m, W, H });
 }
 
-function yearInfo(px) {
-  if (!yearView) return null;
-  const { points, x, m, W, H } = yearView;
-  if (px < m.l - 8 || px > W - m.r + 8) return null;
-  const n = points.length;
-  const i = n === 1 ? 0 : Math.min(n - 1, Math.max(0, Math.round(((px - m.l) / (W - m.r - m.l)) * (n - 1))));
-  const p = points[i];
-  return {
-    x: x(p.t),
-    top: m.t,
-    bottom: H - m.b,
-    html: `${p.label}<br><i class="dot oy"></i>Oy <b>${money(p.oy)}</b><br><i class="dot tmi"></i>Toiminimi <b>${money(p.tmi)}</b>`,
+function lineInfo(el) {
+  return (px) => {
+    const view = views.get(el);
+    if (!view) return null;
+    const { points, x, m, W, H } = view;
+    if (px < m.l - 8 || px > W - m.r + 8) return null;
+    const n = points.length;
+    const i = n === 1 ? 0 : Math.min(n - 1, Math.max(0, Math.round(((px - m.l) / (W - m.r - m.l)) * (n - 1))));
+    const p = points[i];
+    return {
+      x: x(p.t),
+      top: m.t,
+      bottom: H - m.b,
+      html: `${p.label}<br><i class="dot oy"></i>Oy <b>${money(p.oy)}</b><br><i class="dot tmi"></i>Toiminimi <b>${money(p.tmi)}</b>`,
+    };
   };
+}
+
+function renderYears(result) {
+  const points = yearSeries(result, (key, r) => r[key].wealth, (key, _sum, step) => step.wealth);
+  lineChart($("#yearChart"), points, {
+    career: result.input.years,
+    label: "Varallisuus verojen jälkeen työ- ja eläkevuosina, oy ja toiminimi",
+  });
+}
+
+function renderTaxes(result) {
+  const points = yearSeries(result, (key, r) => r[key].tax, (key, sum, step) => sum + step.tax);
+  lineChart($("#taxChart"), points, { career: result.input.years, compact: true, label: "Maksetut verot kertymänä, oy ja toiminimi" });
 }
 
 // ---------- Tuomio, taulukko ja avattu vuosi ----------
@@ -324,6 +355,7 @@ function update() {
   latest = simulate(input);
   renderWhy(latest);
   renderYears(latest);
+  renderTaxes(latest);
   renderYearOne(latest);
 
   // Käyrä riippuu kaikesta muusta paitsi tuloksesta, joten sitä ei lasketa
@@ -361,7 +393,7 @@ for (const form of [$("#controls"), $("#advancedForm")]) {
   form.addEventListener("submit", (event) => event.preventDefault());
 }
 
-attachHover($("#yearChart"), yearInfo);
+for (const id of ["#yearChart", "#taxChart"]) attachHover($(id), lineInfo($(id)));
 
 let resizeTimer = 0;
 window.addEventListener("resize", () => {
@@ -369,6 +401,7 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => {
     if (!latest) return;
     renderYears(latest);
+    renderTaxes(latest);
     drawCurve();
   }, 100);
 });

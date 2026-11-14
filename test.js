@@ -297,3 +297,21 @@ test("simulointi pysyy nopeana", () => {
   simulate({ profit: 120_000, netNeed: 48_000, years: 30, rate: 0.07, yelIncome: 40_000, oyExtra: 1_500, oyEquity: 25_000, tmiNav: 25_000 });
   assert.ok(Date.now() - started < 1500);
 });
+
+test("kertymät: kulutettu ja verot vuosittain täsmäävät yhteenvetoon", () => {
+  const r = simulate({ profit: 90_000, netNeed: 40_000, years: 8, retireYears: 6, rate: 0 });
+  const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+  for (const key of ["oy", "tmi"]) {
+    const s = r.summary[key];
+    const last = r.rows[r.rows.length - 1][key];
+    near(last.spent, s.cumLiving, 1);
+    near(last.tax, s.cumTax + s.cumCorp, 1);
+    // Tuotto 0 %: diskonttaus ei muuta mitään, joten nimelliset eläkerivit summautuvat yhteenvetoon.
+    near(sum(s.retirePath.map((p) => p.net)), s.usable, 1);
+    near(sum(s.retirePath.map((p) => p.tax)), s.retireTax, 1);
+  }
+  for (let i = 1; i < r.rows.length; i += 1) {
+    assert.ok(r.rows[i].oy.tax >= r.rows[i - 1].oy.tax);
+    assert.ok(r.rows[i].tmi.spent >= r.rows[i - 1].tmi.spent);
+  }
+});
