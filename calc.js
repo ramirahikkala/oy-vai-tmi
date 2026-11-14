@@ -572,8 +572,11 @@ export function retire(company, portfolio, input, { years = 1, target = 0, caree
   const path = [];
 
   for (let y = 0; y < total; y += 1) {
-    const grow = y > 0;
-    const pv = (value) => discount(value, rate, y);
+    // Jokainen eläkevuosi on kokonainen vuosi, joten sijoitukset tuottavat
+    // jo ensimmäisenä vuonna. Poikkeus: yksi eläkevuosi = kaikki myydään heti.
+    const grow = total > 1;
+    // Arvot diskontataan uran loppuun: vuoden y tapahtumat ovat y + 1 vuoden päässä.
+    const pv = (value) => discount(value, rate, grow ? y + 1 : 0);
 
     // Yksi eläkevuosi tarkoittaa, että kaikki myydään heti uran päätyttyä.
     const want = total === 1 ? 0 : Math.max(0, wantOf(y));

@@ -192,7 +192,8 @@ test("eläkevaihe", () => {
 
   // Tuotto diskontataan: pelkkä odottaminen ei kasvata lukua.
   const grown = retire(null, { basis: 100_000, market: 100_000 }, { ...input, rate: 0.07 }, { years: 10, target: 0 });
-  assert.ok(grown.usable < 100_000 && grown.usable > 85_000, grown.usable);
+  // 10 vuoden tuotto (100k → ~197k) verotetaan myydessä, joten nykyarvo jää alle alkuperäisen.
+  assert.ok(grown.usable < 100_000 && grown.usable > 80_000, grown.usable);
 });
 
 test("osingon osuus pakottaa palkan ja osingon jaon", () => {
